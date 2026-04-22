@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volley Odds Calculator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        input, select, button {
+            width: 100%;
+            padding: 12px 16px;
+            margin: 10px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            border: none;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .teams-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .team-card {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        
+        .team-card:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .team-card.selected {
+            background: #4CAF50;
+            color: white;
+            box-shadow: 0 0 10px rgba(76,175,80,0.5);
+        }
+        
+        .vs {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin: 20px 0;
+            color: #667eea;
+        }
+        
+        .result {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+        }
+        
+        .probability {
+            font-size: 64px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        
+        .recommendation {
+            font-size: 28px;
+            margin: 20px 0;
+        }
+        
+        .odds {
+            font-size: 36px;
+            font-weight: bold;
+            background: rgba(255,255,255,0.2);
+            display: inline-block;
+            padding: 10px 30px;
+            border-radius: 50px;
+            margin-top: 20px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .step {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .probability {
+                font-size: 40px;
+            }
+            .recommendation {
+                font-size: 20px;
+            }
+            .odds {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>
+                🏐 Volley Odds Calculator
+            </h1>
+            <div class="subtitle">
+                Профессиональный расчет коэффициентов для волейбольных матчей
+            </div>
+            
+            <!-- Шаг 1: Ввод данных -->
+            <div class="step">
+                <div class="step-number">1</div>
+                <strong>Введите статистику команд</strong>
+                
+                <div id="teams-container">
+                    <div class="team-input">
+                        <input type="text" placeholder="Название команды" id="team-name-0">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" placeholder="Сеты выиграно" id="sets-won-0">
+                            <input type="number" placeholder="Сеты проиграно" id="sets-lost-0">
+                            <input type="number" placeholder="Очки забито" id="points-won-0">
+                            <input type="number" placeholder="Очки пропущено" id="points-lost-0">
+                        </div>
+                    </div>
+                </div>
+                
+                <button onclick="addTeam()" style="background: #4CAF50; margin-top: 10px;">
+                    + Добавить команду
+                </button>
+                
+                <button onclick="parseTeams()" style="background: #2196F3; margin-top: 10px;">
+                    Загрузить пример
+                </button>
+            </div>
+            
+            <!-- Шаг 2: Выбор команд -->
+            <div id="selection-step" style="display: none;">
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <strong>Выберите команды</strong>
+                    
+                    <div style="margin: 20px 0;">
+                        <h3>Домашняя команда:</h3>
+                        <div id="home-teams" class="teams-list"></div>
+                    </div>
+                    
+                    <div class="vs">🆚</div>
+                    
+                    <div style="margin: 20px 0;">
+                        <h3>Гостевая команда:</h3>
+                        <div id="away-teams" class="teams-list"></div>
+                    </div>
+                    
+                    <div style="margin: 20px 0;">
+                        <label>
+                            <input type="checkbox" id="neutral-ground">
+                            Нейтральная площадка (отключить фактор дома)
+                        </label>
+                    </div>
+                    
+                    <button onclick="calculateMatch()" style="background: #FF5722;">
+                        🎯 Рассчитать прогноз
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Результат -->
+            <div id="result-step" style="display: none;">
+                <div class="result">
+                    <div id="result-content"></div>
+                </div>
+                <button onclick="resetCalculator()" style="margin-top: 20px;">
+                    🔄 Новый расчет
+                </button>
+            </div>
+            
+            <!-- Загрузка -->
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Расчет...</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>📊 Как это работает</h3>
+            <p>Программа анализирует статистику команд и рассчитывает вероятность победы двумя методами:</p>
+            <ul style="margin-top: 10px; margin-left: 20px;">
+                <li><strong>PR (личные очки)</strong> - на основе набранных/пропущенных мячей</li>
+                <li><strong>BT (сеты)</strong> - на основе выигранных/проигранных партий</li>
+            </ul>
+            <p style="margin-top: 10px;">Итоговый прогноз - среднее значение обоих методов.</p>
+        </div>
+    </div>
+    
+    <script>
+        let teams = [];
+        let selectedHome = null;
+        let selectedAway = null;
+        let teamCount = 1;
+        
+        function addTeam() {
+            const container = document.getElementById('teams-container');
+            const newTeam = document.createElement('div');
+            newTeam.className = 'team-input';
+            newTeam.style.marginTop = '15px';
+            newTeam.innerHTML = `
+                <input type="text" placeholder="Название команды" id="team-name-${teamCount}">
+                <div style="display: flex; gap: 10px;">
+                    <input type="number" placeholder="Сеты выиграно" id="sets-won-${teamCount}">
+                    <input type="number" placeholder="Сеты проиграно" id="sets-lost-${teamCount}">
+                    <input type="number" placeholder="Очки забито" id="points-won-${teamCount}">
+                    <input type="number" placeholder="Очки пропущено" id="points-lost-${teamCount}">
+                </div>
+                <button onclick="this.parentElement.remove()" style="background: #f44336; margin-top: 5px; padding: 5px;">Удалить</button>
+            `;
+            container.appendChild(newTeam);
+            teamCount++;
+        }
+        
+        function parseTeams() {
+            teams = [];
+            
+            for (let i = 0; i < teamCount; i++) {
+                const nameInput = document.getElementById(`team-name-${i}`);
+                if (nameInput && nameInput.value) {
+                    teams.push({
+                        name: nameInput.value,
+                        sets_won: parseInt(document.getElementById(`sets-won-${i}`)?.value) || 0,
+                        sets_lost: parseInt(document.getElementById(`sets-lost-${i}`)?.value) || 0,
+                        points_won: parseInt(document.getElementById(`points-won-${i}`)?.value) || null,
+                        points_lost: parseInt(document.getElementById(`points-lost-${i}`)?.value) || null
+                    });
+                }
+            }
+            
+            if (teams.length < 2) {
+                alert('Введите минимум 2 команды');
+                return;
+            }
+            
+            displayTeamsSelection();
+        }
+        
+        function loadExample() {
+            teams = [
+                { name: "Зенит-Казань", sets_won: 45, sets_lost: 12, points_won: 1250, points_lost: 980 },
+                { name: "Динамо Москва", sets_won: 38, sets_lost: 18, points_won: 1150, points_lost: 1050 },
+                { name: "Локомотив Новосибирск", sets_won: 35, sets_lost: 20, points_won: 1100, points_lost: 1080 },
+                { name: "Факел", sets_won: 30, sets_lost: 25, points_won: 1050, points_lost: 1120 }
+            ];
+            displayTeamsSelection();
+        }
+        
+        function displayTeamsSelection() {
+            const homeDiv = document.getElementById('home-teams');
+            const awayDiv = document.getElementById('away-teams');
+            
+            homeDiv.innerHTML = '';
+            awayDiv.innerHTML = '';
+            
+            teams.forEach((team, index) => {
+                const homeCard = document.createElement('div');
+                homeCard.className = 'team-card';
+                homeCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}</small>`;
+                homeCard.onclick = () => selectTeam('home', team.name);
+                homeDiv.appendChild(homeCard);
+                
+                const awayCard = document.createElement('div');
+                awayCard.className = 'team-card';
+                awayCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}</small>`;
+                awayCard.onclick = () => selectTeam('away', team.name);
+                awayDiv.appendChild(awayCard);
+            });
+            
+            document.getElementById('selection-step').style.display = 'block';
+            document.querySelector('.step').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function selectTeam(type, teamName) {
+            if (type === 'home') {
+                selectedHome = teamName;
+                document.querySelectorAll('#home-teams .team-card').forEach(card => {
+                    card.classList.remove('selected');
+                    if (card.innerHTML.includes(teamName)) card.classList.add('selected');
+                });
+            } else {
+                selectedAway = teamName;
+                document.querySelectorAll('#away-teams .team-card').forEach(card => {
+                    card.classList.remove('selected');
+                    if (card.innerHTML.includes(teamName)) card.classList.add('selected');
+                });
+            }
+        }
+        
+        function calculateMatch() {
+            if (!selectedHome || !selectedAway) {
+                alert('Выберите обе команды');
+                return;
+            }
+            
+            if (selectedHome === selectedAway) {
+                alert('Выберите разные команды');
+                return;
+            }
+            
+            const homeTeam = teams.find(t => t.name === selectedHome);
+            const awayTeam = teams.find(t => t.name === selectedAway);
+            const neutralGround = document.getElementById('neutral-ground').checked;
+            
+            document.getElementById('loading').style.display = 'block';
+            
+            setTimeout(() => {
+                const result = calculateOdds(homeTeam, awayTeam, neutralGround);
+                displayResult(result);
+                document.getElementById('loading').style.display = 'none';
+            }, 500);
+        }
+        
+        function calculateOdds(home, away, neutralGround) {
+            // PR метод (личные очки)
+            let prProb = null;
+            if (home.points_won && home.points_lost && away.points_won && away.points_lost) {
+                const homeStrength = home.points_won / Math.max(home.points_lost, 1);
+                const awayStrength = away.points_won / Math.max(away.points_lost, 1);
+                const homeAdvantage = neutralGround ? 1.0 : 1.05;
+                const expectedRatio = (homeStrength * homeAdvantage) / Math.max(awayStrength, 0.01);
+                prProb = expectedRatio / (1 + expectedRatio);
+                prProb = Math.max(0.05, Math.min(0.95, prProb));
+            }
+            
+            // BT метод (сеты)
+            const homeStrength = home.sets_won / Math.max(home.sets_lost, 1);
+            const awayStrength = away.sets_won / Math.max(away.sets_lost, 1);
+            const homeAdvantage = neutralGround ? 1.0 : 1.05;
+            const expectedRatio = (homeStrength * homeAdvantage) / Math.max(awayStrength, 0.01);
+            let btProb = expectedRatio / (1 + expectedRatio);
+            btProb = Math.max(0.05, Math.min(0.95, btProb));
+            
+            // Усреднение
+            let finalProb;
+            if (prProb) {
+                finalProb = (prProb + btProb) / 2;
+            } else {
+                finalProb = btProb;
+            }
+            
+            const finalOdds = 1 / finalProb;
+            let recommendation, fairOdds;
+            
+            if (finalProb > 0.5) {
+                recommendation = `Ставка на ${home.name}`;
+                fairOdds = finalOdds.toFixed(2);
+            } else {
+                recommendation = `Ставка на ${away.name}`;
+                fairOdds = (1 / (1 - finalProb)).toFixed(2);
+            }
+            
+            return {
+                home: home.name,
+                away: away.name,
+                prProb: prProb,
+                btProb: btProb,
+                finalProb: finalProb,
+                finalOdds: finalOdds,
+                recommendation: recommendation,
+                fairOdds: fairOdds
+            };
+        }
+        
+        function displayResult(result) {
+            const resultDiv = document.getElementById('result-content');
+            
+            let prHtml = '';
+            if (result.prProb) {
+                prHtml = `
+                    <div style="margin: 20px 0;">
+                        <h3>📊 PR (личные очки)</h3>
+                        <div style="font-size: 24px;">${(result.prProb * 100).toFixed(1)}%</div>
+                        <div>Коэффициент: ${(1 / result.prProb).toFixed(2)}</div>
+                    </div>
+                `;
+            }
+            
+            resultDiv.innerHTML = `
+                <h2>${result.home} 🆚 ${result.away}</h2>
+                
+                ${prHtml}
+                
+                <div style="margin: 20px 0;">
+                    <h3>📊 BT (сеты)</h3>
+                    <div style="font-size: 24px;">${(result.btProb * 100).toFixed(1)}%</div>
+                    <div>Коэффициент: ${(1 / result.btProb).toFixed(2)}</div>
+                </div>
+                
+                <div style="margin: 30px 0; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.3);">
+                    <h3>🎯 ИТОГОВЫЙ ПРОГНОЗ</h3>
+                    <div class="probability">${(result.finalProb * 100).toFixed(1)}%</div>
+                    <div class="recommendation">${result.recommendation}</div>
+                    <div class="odds">Коэффициент: ${result.fairOdds}</div>
+                </div>
+            `;
+            
+            document.getElementById('result-step').style.display = 'block';
+            document.getElementById('result-step').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function resetCalculator() {
+            teams = [];
+            selectedHome = null;
+            selectedAway = null;
+            document.getElementById('selection-step').style.display = 'none';
+            document.getElementById('result-step').style.display = 'none';
+            document.getElementById('teams-container').innerHTML = `
+                <div class="team-input">
+                    <input type="text" placeholder="Название команды" id="team-name-0">
+                    <div style="display: flex; gap: 10px;">
+                        <input type="number" placeholder="Сеты выиграно" id="sets-won-0">
+                        <input type="number" placeholder="Сеты проиграно" id="sets-lost-0">
+                        <input type="number" placeholder="Очки забито" id="points-won-0">
+                        <input type="number" placeholder="Очки пропущено" id="points-lost-0">
+                    </div>
+                </div>
+            `;
+            teamCount = 1;
+        }
+        
+        // Загружаем пример при старте
+        setTimeout(() => {
+            if(confirm('Загрузить пример с российскими командами?')) {
+                loadExample();
+            }
+        }, 500);
+    </script>
+</body>
+</html>
