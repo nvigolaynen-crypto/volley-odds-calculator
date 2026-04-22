@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Volley Odds Calculator</title>
+    <title>Volley Odds Calculator - Парсинг реальных таблиц</title>
     <style>
         * {
             margin: 0;
@@ -19,7 +19,7 @@
         }
         
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
         }
         
@@ -42,6 +42,37 @@
         .subtitle {
             color: #666;
             margin-bottom: 30px;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            margin-bottom: -2px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
         }
         
         input, select, button {
@@ -72,11 +103,18 @@
             box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
         .teams-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 10px;
             margin: 20px 0;
+            max-height: 400px;
+            overflow-y: auto;
         }
         
         .team-card {
@@ -177,6 +215,46 @@
             margin-right: 10px;
         }
         
+        .league-badge {
+            display: inline-block;
+            background: #e0e0e0;
+            padding: 5px 10px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .league-badge:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .status-message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
         @media (max-width: 768px) {
             .probability {
                 font-size: 40px;
@@ -187,6 +265,19 @@
             .odds {
                 font-size: 24px;
             }
+            .teams-list {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .proxy-note {
+            background: #fff3cd;
+            border: 1px solid #ffecb5;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -197,57 +288,100 @@
                 🏐 Volley Odds Calculator
             </h1>
             <div class="subtitle">
-                Профессиональный расчет коэффициентов для волейбольных матчей
+                Автоматический парсинг реальных турнирных таблиц
             </div>
             
-            <!-- Шаг 1: Ввод данных -->
-            <div class="step">
-                <div class="step-number">1</div>
-                <strong>Введите статистику команд</strong>
-                
-                <div id="teams-container">
-                    <div class="team-input">
-                        <input type="text" placeholder="Название команды" id="team-name-0">
-                        <div style="display: flex; gap: 10px;">
-                            <input type="number" placeholder="Сеты выиграно" id="sets-won-0">
-                            <input type="number" placeholder="Сеты проиграно" id="sets-lost-0">
-                            <input type="number" placeholder="Очки забито" id="points-won-0">
-                            <input type="number" placeholder="Очки пропущено" id="points-lost-0">
+            <!-- Вкладки -->
+            <div class="tab-buttons">
+                <button class="tab-btn active" onclick="switchTab('parse')">🌐 Парсинг сайтов</button>
+                <button class="tab-btn" onclick="switchTab('manual')">✍️ Ручной ввод</button>
+            </div>
+            
+            <!-- Вкладка парсинга -->
+            <div id="parse-tab" class="tab-content active">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <strong>Выберите лигу или введите URL</strong>
+                    
+                    <div style="margin: 15px 0;">
+                        <label>Популярные лиги:</label>
+                        <div>
+                            <span class="league-badge" onclick="setLeagueUrl('https://ossrb-web.dataproject.com/CompetitionStandings.aspx?ID=97&PID=172')">🇷🇸 Сербия Суперлига</span>
+                            <span class="league-badge" onclick="setLeagueUrl('https://www.legavolley.it/classifica/?IdCampionato=1')">🇮🇹 Италия Суперлига</span>
+                            <span class="league-badge" onclick="setLeagueUrl('https://www.plusliga.pl/table/tour/1')">🇵🇱 Польша PlusLiga</span>
+                            <span class="league-badge" onclick="setLeagueUrl('https://volley.ru/competitions/3611/standings')">🇷🇺 Россия Суперлига</span>
+                            <span class="league-badge" onclick="setLeagueUrl('https://tvf.org.tr/ligler/axa-sigorta-efeler-ligi/puan-durumu/')">🇹🇷 Турция Efeler Ligi</span>
+                            <span class="league-badge" onclick="setLeagueUrl('https://www.volleyball-bundesliga.de/cms/home/1_bundesliga_maenner/tabelle.xhtml')">🇩🇪 Германия Bundesliga</span>
                         </div>
                     </div>
+                    
+                    <input type="text" id="league-url" placeholder="Или вставьте URL турнирной таблицы" value="https://ossrb-web.dataproject.com/CompetitionStandings.aspx?ID=97&PID=172">
+                    
+                    <button onclick="fetchRealData()" id="fetch-btn">
+                        🔄 Парсить таблицу
+                    </button>
+                    
+                    <div class="proxy-note">
+                        💡 Примечание: Некоторые сайты могут блокировать прямые запросы. 
+                        В этом случае используйте ручной ввод или попробуйте другой URL.
+                        Рекомендуются сайты на платформе DataProject.
+                    </div>
                 </div>
-                
-                <button onclick="addTeam()" style="background: #4CAF50; margin-top: 10px;">
-                    + Добавить команду
-                </button>
-                
-                <button onclick="parseTeams()" style="background: #2196F3; margin-top: 10px;">
-                    Загрузить пример
-                </button>
             </div>
+            
+            <!-- Вкладка ручного ввода -->
+            <div id="manual-tab" class="tab-content">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <strong>Введите статистику команд</strong>
+                    
+                    <div id="teams-container">
+                        <div class="team-input">
+                            <input type="text" placeholder="Название команды" id="team-name-0">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <input type="number" placeholder="Сеты выиграно" id="sets-won-0" style="flex: 1;">
+                                <input type="number" placeholder="Сеты проиграно" id="sets-lost-0" style="flex: 1;">
+                                <input type="number" placeholder="Очки забито" id="points-won-0" style="flex: 1;">
+                                <input type="number" placeholder="Очки пропущено" id="points-lost-0" style="flex: 1;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button onclick="addTeam()" style="background: #4CAF50; margin-top: 10px;">
+                        + Добавить команду
+                    </button>
+                    
+                    <button onclick="loadExampleTeams()" style="background: #2196F3; margin-top: 10px;">
+                        📋 Загрузить пример
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Статус сообщения -->
+            <div id="status-message" class="status-message"></div>
             
             <!-- Шаг 2: Выбор команд -->
             <div id="selection-step" style="display: none;">
                 <div class="step">
                     <div class="step-number">2</div>
-                    <strong>Выберите команды</strong>
+                    <strong>Выберите команды для прогноза</strong>
                     
                     <div style="margin: 20px 0;">
-                        <h3>Домашняя команда:</h3>
+                        <h3>🏠 Домашняя команда:</h3>
                         <div id="home-teams" class="teams-list"></div>
                     </div>
                     
                     <div class="vs">🆚</div>
                     
                     <div style="margin: 20px 0;">
-                        <h3>Гостевая команда:</h3>
+                        <h3>✈️ Гостевая команда:</h3>
                         <div id="away-teams" class="teams-list"></div>
                     </div>
                     
                     <div style="margin: 20px 0;">
                         <label>
                             <input type="checkbox" id="neutral-ground">
-                            Нейтральная площадка (отключить фактор дома)
+                            🏟️ Нейтральная площадка (отключить фактор дома)
                         </label>
                     </div>
                     
@@ -270,18 +404,19 @@
             <!-- Загрузка -->
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                <p>Расчет...</p>
+                <p>Парсинг данных...</p>
             </div>
         </div>
         
         <div class="card">
-            <h3>📊 Как это работает</h3>
-            <p>Программа анализирует статистику команд и рассчитывает вероятность победы двумя методами:</p>
+            <h3>📊 Как работает парсинг</h3>
+            <p>Программа пытается извлечь данные из HTML таблицы:</p>
             <ul style="margin-top: 10px; margin-left: 20px;">
-                <li><strong>PR (личные очки)</strong> - на основе набранных/пропущенных мячей</li>
-                <li><strong>BT (сеты)</strong> - на основе выигранных/проигранных партий</li>
+                <li><strong>Автоматически</strong> находит таблицу на странице</li>
+                <li><strong>Извлекает</strong> названия команд и статистику сетов</li>
+                <li><strong>Определяет</strong> колонки с выигранными/проигранными сетами</li>
             </ul>
-            <p style="margin-top: 10px;">Итоговый прогноз - среднее значение обоих методов.</p>
+            <p style="margin-top: 10px;">⚠️ Если парсинг не сработал, используйте ручной ввод.</p>
         </div>
     </div>
     
@@ -291,6 +426,145 @@
         let selectedAway = null;
         let teamCount = 1;
         
+        function switchTab(tab) {
+            // Переключение вкладок
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            if (tab === 'parse') {
+                document.querySelector('.tab-btn:first-child').classList.add('active');
+                document.getElementById('parse-tab').classList.add('active');
+            } else {
+                document.querySelector('.tab-btn:last-child').classList.add('active');
+                document.getElementById('manual-tab').classList.add('active');
+            }
+            
+            // Скрываем выбор команд при смене вкладки
+            document.getElementById('selection-step').style.display = 'none';
+            document.getElementById('result-step').style.display = 'none';
+        }
+        
+        function setLeagueUrl(url) {
+            document.getElementById('league-url').value = url;
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.textContent = message;
+            statusDiv.className = `status-message status-${type}`;
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        async function fetchRealData() {
+            const url = document.getElementById('league-url').value;
+            if (!url) {
+                showStatus('Введите URL таблицы', 'error');
+                return;
+            }
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('fetch-btn').disabled = true;
+            
+            try {
+                // Используем CORS прокси для обхода ограничений
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Не удалось загрузить страницу');
+                
+                const html = await response.text();
+                const parsedTeams = parseHtmlTable(html);
+                
+                if (parsedTeams.length === 0) {
+                    throw new Error('Не удалось найти данные в таблице');
+                }
+                
+                teams = parsedTeams;
+                showStatus(`✅ Загружено ${teams.length} команд!`, 'success');
+                displayTeamsSelection();
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Ошибка парсинга: ${error.message}. Попробуйте ручной ввод.`, 'error');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('fetch-btn').disabled = false;
+            }
+        }
+        
+        function parseHtmlTable(html) {
+            // Создаем DOM парсер
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            
+            // Ищем таблицы
+            const tables = doc.querySelectorAll('table');
+            let bestTable = null;
+            let maxRows = 0;
+            
+            // Находим таблицу с наибольшим количеством строк (вероятно, турнирная)
+            tables.forEach(table => {
+                const rows = table.querySelectorAll('tr').length;
+                if (rows > maxRows && rows > 3) {
+                    maxRows = rows;
+                    bestTable = table;
+                }
+            });
+            
+            if (!bestTable) return [];
+            
+            const teams = [];
+            const rows = bestTable.querySelectorAll('tr');
+            
+            // Пропускаем заголовок
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i].querySelectorAll('td');
+                if (cols.length < 3) continue;
+                
+                // Ищем название команды (обычно в первых 3 колонках)
+                let teamName = null;
+                for (let j = 0; j < Math.min(3, cols.length); j++) {
+                    const text = cols[j].textContent.trim();
+                    if (text && !text.match(/^\d+$/) && text.length > 1 && text.length < 50) {
+                        teamName = text;
+                        break;
+                    }
+                }
+                
+                if (!teamName) continue;
+                
+                // Ищем числа (сеты)
+                const numbers = [];
+                for (let j = 0; j < cols.length; j++) {
+                    const text = cols[j].textContent.trim();
+                    const num = parseInt(text);
+                    if (!isNaN(num) && text.match(/^\d+$/)) {
+                        numbers.push(num);
+                    }
+                }
+                
+                // Извлекаем сеты (обычно первые два числа)
+                let setsWon = 0, setsLost = 0;
+                if (numbers.length >= 2) {
+                    setsWon = numbers[0];
+                    setsLost = numbers[1];
+                }
+                
+                teams.push({
+                    name: teamName,
+                    sets_won: setsWon,
+                    sets_lost: setsLost,
+                    points_won: null,
+                    points_lost: null
+                });
+            }
+            
+            return teams;
+        }
+        
         function addTeam() {
             const container = document.getElementById('teams-container');
             const newTeam = document.createElement('div');
@@ -298,11 +572,11 @@
             newTeam.style.marginTop = '15px';
             newTeam.innerHTML = `
                 <input type="text" placeholder="Название команды" id="team-name-${teamCount}">
-                <div style="display: flex; gap: 10px;">
-                    <input type="number" placeholder="Сеты выиграно" id="sets-won-${teamCount}">
-                    <input type="number" placeholder="Сеты проиграно" id="sets-lost-${teamCount}">
-                    <input type="number" placeholder="Очки забито" id="points-won-${teamCount}">
-                    <input type="number" placeholder="Очки пропущено" id="points-lost-${teamCount}">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <input type="number" placeholder="Сеты выиграно" id="sets-won-${teamCount}" style="flex: 1;">
+                    <input type="number" placeholder="Сеты проиграно" id="sets-lost-${teamCount}" style="flex: 1;">
+                    <input type="number" placeholder="Очки забито" id="points-won-${teamCount}" style="flex: 1;">
+                    <input type="number" placeholder="Очки пропущено" id="points-lost-${teamCount}" style="flex: 1;">
                 </div>
                 <button onclick="this.parentElement.remove()" style="background: #f44336; margin-top: 5px; padding: 5px;">Удалить</button>
             `;
@@ -310,13 +584,24 @@
             teamCount++;
         }
         
-        function parseTeams() {
-            teams = [];
+        function loadExampleTeams() {
+            teams = [
+                { name: "Зенит-Казань", sets_won: 45, sets_lost: 12, points_won: 1250, points_lost: 980 },
+                { name: "Динамо Москва", sets_won: 38, sets_lost: 18, points_won: 1150, points_lost: 1050 },
+                { name: "Локомотив Новосибирск", sets_won: 35, sets_lost: 20, points_won: 1100, points_lost: 1080 },
+                { name: "Факел", sets_won: 30, sets_lost: 25, points_won: 1050, points_lost: 1120 }
+            ];
+            showStatus('✅ Загружен пример с 4 командами', 'success');
+            displayTeamsSelection();
+        }
+        
+        function parseManualTeams() {
+            const newTeams = [];
             
             for (let i = 0; i < teamCount; i++) {
                 const nameInput = document.getElementById(`team-name-${i}`);
                 if (nameInput && nameInput.value) {
-                    teams.push({
+                    newTeams.push({
                         name: nameInput.value,
                         sets_won: parseInt(document.getElementById(`sets-won-${i}`)?.value) || 0,
                         sets_lost: parseInt(document.getElementById(`sets-lost-${i}`)?.value) || 0,
@@ -326,22 +611,15 @@
                 }
             }
             
-            if (teams.length < 2) {
-                alert('Введите минимум 2 команды');
-                return;
+            if (newTeams.length < 2) {
+                showStatus('Введите минимум 2 команды', 'error');
+                return false;
             }
             
+            teams = newTeams;
+            showStatus(`✅ Загружено ${teams.length} команд из ручного ввода`, 'success');
             displayTeamsSelection();
-        }
-        
-        function loadExample() {
-            teams = [
-                { name: "Зенит-Казань", sets_won: 45, sets_lost: 12, points_won: 1250, points_lost: 980 },
-                { name: "Динамо Москва", sets_won: 38, sets_lost: 18, points_won: 1150, points_lost: 1050 },
-                { name: "Локомотив Новосибирск", sets_won: 35, sets_lost: 20, points_won: 1100, points_lost: 1080 },
-                { name: "Факел", sets_won: 30, sets_lost: 25, points_won: 1050, points_lost: 1120 }
-            ];
-            displayTeamsSelection();
+            return true;
         }
         
         function displayTeamsSelection() {
@@ -352,21 +630,23 @@
             awayDiv.innerHTML = '';
             
             teams.forEach((team, index) => {
+                const pointsInfo = team.points_won ? ` | Очки: ${team.points_won}:${team.points_lost}` : '';
+                
                 const homeCard = document.createElement('div');
                 homeCard.className = 'team-card';
-                homeCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}</small>`;
+                homeCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}${pointsInfo}</small>`;
                 homeCard.onclick = () => selectTeam('home', team.name);
                 homeDiv.appendChild(homeCard);
                 
                 const awayCard = document.createElement('div');
                 awayCard.className = 'team-card';
-                awayCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}</small>`;
+                awayCard.innerHTML = `${team.name}<br><small>Сеты: ${team.sets_won}:${team.sets_lost}${pointsInfo}</small>`;
                 awayCard.onclick = () => selectTeam('away', team.name);
                 awayDiv.appendChild(awayCard);
             });
             
             document.getElementById('selection-step').style.display = 'block';
-            document.querySelector('.step').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('selection-step').scrollIntoView({ behavior: 'smooth' });
         }
         
         function selectTeam(type, teamName) {
@@ -386,13 +666,19 @@
         }
         
         function calculateMatch() {
+            // Проверяем, откуда брать команды (парсинг или ручной ввод)
+            if (teams.length === 0) {
+                // Пробуем взять из ручного ввода
+                if (!parseManualTeams()) return;
+            }
+            
             if (!selectedHome || !selectedAway) {
-                alert('Выберите обе команды');
+                showStatus('Выберите обе команды', 'error');
                 return;
             }
             
             if (selectedHome === selectedAway) {
-                alert('Выберите разные команды');
+                showStatus('Выберите разные команды', 'error');
                 return;
             }
             
@@ -406,7 +692,7 @@
                 const result = calculateOdds(homeTeam, awayTeam, neutralGround);
                 displayResult(result);
                 document.getElementById('loading').style.display = 'none';
-            }, 500);
+            }, 100);
         }
         
         function calculateOdds(home, away, neutralGround) {
@@ -441,10 +727,10 @@
             let recommendation, fairOdds;
             
             if (finalProb > 0.5) {
-                recommendation = `Ставка на ${home.name}`;
+                recommendation = `🏆 Ставка на ${home.name}`;
                 fairOdds = finalOdds.toFixed(2);
             } else {
-                recommendation = `Ставка на ${away.name}`;
+                recommendation = `🏆 Ставка на ${away.name}`;
                 fairOdds = (1 / (1 - finalProb)).toFixed(2);
             }
             
@@ -456,7 +742,9 @@
                 finalProb: finalProb,
                 finalOdds: finalOdds,
                 recommendation: recommendation,
-                fairOdds: fairOdds
+                fairOdds: fairOdds,
+                homeSets: `${home.sets_won}:${home.sets_lost}`,
+                awaySets: `${away.sets_won}:${away.sets_lost}`
             };
         }
         
@@ -470,12 +758,16 @@
                         <h3>📊 PR (личные очки)</h3>
                         <div style="font-size: 24px;">${(result.prProb * 100).toFixed(1)}%</div>
                         <div>Коэффициент: ${(1 / result.prProb).toFixed(2)}</div>
+                        <small>Основано на набранных/пропущенных очках</small>
                     </div>
                 `;
             }
             
             resultDiv.innerHTML = `
                 <h2>${result.home} 🆚 ${result.away}</h2>
+                <div style="margin: 10px 0; opacity: 0.9;">
+                    <small>Статистика сетов: ${result.homeSets} vs ${result.awaySets}</small>
+                </div>
                 
                 ${prHtml}
                 
@@ -483,13 +775,17 @@
                     <h3>📊 BT (сеты)</h3>
                     <div style="font-size: 24px;">${(result.btProb * 100).toFixed(1)}%</div>
                     <div>Коэффициент: ${(1 / result.btProb).toFixed(2)}</div>
+                    <small>Основано на выигранных/проигранных партиях</small>
                 </div>
                 
                 <div style="margin: 30px 0; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.3);">
                     <h3>🎯 ИТОГОВЫЙ ПРОГНОЗ</h3>
                     <div class="probability">${(result.finalProb * 100).toFixed(1)}%</div>
                     <div class="recommendation">${result.recommendation}</div>
-                    <div class="odds">Коэффициент: ${result.fairOdds}</div>
+                    <div class="odds">Справедливый коэффициент: ${result.fairOdds}</div>
+                    <small style="display: block; margin-top: 15px;">
+                        📌 Ставьте, если букмекер дает коэффициент выше ${result.fairOdds}
+                    </small>
                 </div>
             `;
             
@@ -503,26 +799,22 @@
             selectedAway = null;
             document.getElementById('selection-step').style.display = 'none';
             document.getElementById('result-step').style.display = 'none';
+            document.getElementById('status-message').style.display = 'none';
+            
+            // Очищаем ручной ввод
             document.getElementById('teams-container').innerHTML = `
                 <div class="team-input">
                     <input type="text" placeholder="Название команды" id="team-name-0">
-                    <div style="display: flex; gap: 10px;">
-                        <input type="number" placeholder="Сеты выиграно" id="sets-won-0">
-                        <input type="number" placeholder="Сеты проиграно" id="sets-lost-0">
-                        <input type="number" placeholder="Очки забито" id="points-won-0">
-                        <input type="number" placeholder="Очки пропущено" id="points-lost-0">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="number" placeholder="Сеты выиграно" id="sets-won-0" style="flex: 1;">
+                        <input type="number" placeholder="Сеты проиграно" id="sets-lost-0" style="flex: 1;">
+                        <input type="number" placeholder="Очки забито" id="points-won-0" style="flex: 1;">
+                        <input type="number" placeholder="Очки пропущено" id="points-lost-0" style="flex: 1;">
                     </div>
                 </div>
             `;
             teamCount = 1;
         }
-        
-        // Загружаем пример при старте
-        setTimeout(() => {
-            if(confirm('Загрузить пример с российскими командами?')) {
-                loadExample();
-            }
-        }, 500);
     </script>
 </body>
 </html>
