@@ -18,9 +18,10 @@ def parse_teams(html):
         
         for row in rows:
             cols = row.find_all('td')
-            if len(cols) < 3:
+            if len(cols) < 5:
                 continue
             
+            # Название команды (обычно 1-2 колонка)
             team_name = None
             for col in cols[:3]:
                 text = col.get_text().strip()
@@ -31,21 +32,68 @@ def parse_teams(html):
             if not team_name:
                 continue
             
-            numbers = []
-            for col in cols:
+            # Собираем все числа из строки
+            all_numbers = []
+            for idx, col in enumerate(cols):
                 text = col.get_text().strip()
-                nums = re.findall(r'\d+', text)
+                # Ищем числа в ячейке
+                nums = re.findall(r'\b(\d+)\b', text)
                 for num in nums:
                     n = int(num)
-                    if n < 500:
-                        numbers.append(n)
+                    # Исключаем слишком большие (не сеты)
+                    if n < 5000:
+                        all_numbers.append({'index': idx, 'value': n, 'text': text})
             
-            numbers = list(dict.fromkeys(numbers))
+            # АНАЛИЗ ДАННЫХ:
+            # В волейбольной таблице колонки обычно идут в порядке:
+            # 1. Название команды
+            # 2. Игры (матчи)
+            # 3. Победы
+            # 4. Поражения  
+            # 5. Сеты выиграно
+            # 6. Сеты проиграно
+            # 7. Очки выиграно (мячи)
+            # 8. Очки проиграно (мячи)
             
-            sets_won = numbers[0] if len(numbers) > 0 else 0
-            sets_lost = numbers[1] if len(numbers) > 1 else 0
-            points_won = numbers[2] if len(numbers) > 2 else None
-            points_lost = numbers[3] if len(numbers) > 3 else None
+            sets_won = 0
+            sets_lost = 0
+            points_won = None
+            points_lost = None
+            
+            # Ищем числа в диапазоне сетов (0-150) - это обычно сеты
+            set_candidates = [n for n in all_numbers if n['value'] <= 150 and n['value'] > 0]
+            
+            # Ищем большие числа (1000+) - это очки/мячи
+            points_candidates = [n for n in all_numbers if n['value'] >= 500 and n['value'] < 3000]
+            
+            # Если нашли сеты - берем первые два
+            if len(set_candidates) >= 2:
+                sets_won = set_candidates[0]['value']
+                sets_lost = set_candidates[1]['value']
+            elif len(set_candidates) == 1:
+                sets_won = set_candidates[0]['value']
+            
+            # Если нашли очки - берем
+            if len(points_candidates) >= 2:
+                points_won = points_candidates[0]['value']
+                points_lost = points_candidates[1]['value']
+            
+            # Дополнительная проверка: ищем колонки с двоеточием
+            for col in cols:
+                text = col.get_text().strip()
+                if ':' in text:
+                    parts = text.split(':')
+                    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                        p1 = int(parts[0])
+                        p2 = int(parts[1])
+                        # Если оба числа маленькие (0-150) - это сеты
+                        if p1 <= 150 and p2 <= 150:
+                            sets_won = p1
+                            sets_lost = p2
+                        # Если оба числа большие (500+) - это очки
+                        elif p1 >= 500 and p2 >= 500:
+                            points_won = p1
+                            points_lost = p2
             
             teams.append({
                 'name': team_name,
@@ -100,8 +148,8 @@ def calculate():
         return jsonify({'error': 'Команды не найдены'}), 400
     
     # Расчет силы команд по сетам
-    home_strength = home['sets_won'] / max(home['sets_lost'], 1)
-    away_strength = away['sets_won'] / max(away['sets_lost'], 1)
+    home_strength = home['sets_won'] / max(home['sets_lost'], 1) if home['sets_lost'] > 0 else home['sets_won']
+    away_strength = away['sets_won'] / max(away['sets_lost'], 1) if away['sets_lost'] > 0 else away['sets_won']
     
     # Коэффициенты на победу
     expected = home_strength / max(away_strength, 0.01)
@@ -111,37 +159,33 @@ def calculate():
     home_odds = round(1 / win_prob, 2)
     away_odds = round(1 / (1 - win_prob), 2)
     
-    # РАСЧЕТ ФОРЫ ПО МЯЧАМ (среднее значение, без коэффициента)
+    # РАСЧЕТ ФОРЫ ПО МЯЧАМ
     handicap_value = 0
     is_home_favorite = True
     
-    if home['points_won'] and away['points_won']:
+    if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
         home_pts_strength = home['points_won'] / max(home['points_lost'], 1)
         away_pts_strength = away['points_won'] / max(away['points_lost'], 1)
         pts_ratio = home_pts_strength / max(away_pts_strength, 0.01)
         
-        # Расчет ожидаемой разницы в очках
+        # Расчет ожидаемой разницы в очках за матч
         expected_diff = (pts_ratio - 1) * 25
-        expected_diff = max(-25, min(25, expected_diff))
+        expected_diff = max(-20, min(20, expected_diff))
         
-        # Округляем до 0.5
         handicap_value = round(expected_diff / 0.5) * 0.5
-        handicap_value = max(-25, min(25, handicap_value))
-        
         is_home_favorite = handicap_value < 0
         
-    else:
-        # Если нет данных по очкам - на основе сетов
+    elif home['sets_won'] > 0 and away['sets_won'] > 0:
+        # Если нет очков - на основе сетов
         set_ratio = home_strength / max(away_strength, 0.01)
-        expected_diff = (set_ratio - 1) * 8
+        expected_diff = (set_ratio - 1) * 10
         expected_diff = max(-15, min(15, expected_diff))
         handicap_value = round(expected_diff / 0.5) * 0.5
         is_home_favorite = handicap_value < 0
     
-    # Формулировка форы (без коэффициента)
     abs_handicap = abs(handicap_value)
     
-    if abs_handicap < 0.5:
+    if abs_handicap < 0.5 or handicap_value == 0:
         handicap_line = "Ожидается равный матч"
     elif is_home_favorite:
         handicap_line = f"{home['name']} (фаворит) дома с форой {abs_handicap}"
@@ -155,6 +199,8 @@ def calculate():
             'away_team': away['name'],
             'home_sets': f"{home['sets_won']}:{home['sets_lost']}",
             'away_sets': f"{away['sets_won']}:{away['sets_lost']}",
+            'home_points': f"{home['points_won']}:{home['points_lost']}" if home['points_won'] else None,
+            'away_points': f"{away['points_won']}:{away['points_lost']}" if away['points_won'] else None,
             'home_win_odds': home_odds,
             'away_win_odds': away_odds,
             'handicap_line': handicap_line
