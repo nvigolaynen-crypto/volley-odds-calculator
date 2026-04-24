@@ -21,7 +21,6 @@ def parse_teams(html):
             if len(cols) < 3:
                 continue
             
-            # Название команды
             team_name = None
             for col in cols[:3]:
                 text = col.get_text().strip()
@@ -32,7 +31,6 @@ def parse_teams(html):
             if not team_name:
                 continue
             
-            # Числа (сеты)
             numbers = []
             for col in cols:
                 text = col.get_text().strip()
@@ -101,7 +99,6 @@ def calculate():
     if not home or not away:
         return jsonify({'error': 'Команды не найдены'}), 400
     
-    # Коэффициенты на победу
     home_strength = home['sets_won'] / max(home['sets_lost'], 1)
     away_strength = away['sets_won'] / max(away['sets_lost'], 1)
     expected = home_strength / max(away_strength, 0.01)
@@ -111,7 +108,6 @@ def calculate():
     home_odds = round(1 / win_prob, 2)
     away_odds = round(1 / (1 - win_prob), 2)
     
-    # Фора по мячам
     if home['points_won'] and away['points_won']:
         home_pts = home['points_won'] / max(home['points_lost'], 1)
         away_pts = away['points_won'] / max(away['points_lost'], 1)
@@ -137,7 +133,7 @@ def calculate():
     else:
         line = "Нет данных по очкам"
         odds = 1.85
-        text = "Для расчета форы нужны данные по очкам"
+        text = "В таблице нет данных по набранным очкам"
     
     return jsonify({
         'success': True,
