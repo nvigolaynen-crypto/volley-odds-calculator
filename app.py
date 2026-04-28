@@ -119,70 +119,69 @@ def parse_volleyru(html, url):
     if not teams:
         return teams
 
-    # ----- 2. Парсим матчи (ищем таблицу с классом 's-table s-table--round') -----
+    # ----- 2. Парсим матчи (таблица результатов) -----
     games = []
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
-        tables = soup.find_all('table', class_='s-table')
-        if len(tables) >= 2:
-            games_table = tables[1]
-    if games_table:
-        game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
-        if not game_rows:
-            all_rows = games_table.find_all('tr')
-            if len(all_rows) > 2:
-                game_rows = all_rows[2:]
-        for row in game_rows:
-            cells = row.find_all('td')
-            if len(cells) < 4:
-                continue
-            # Извлекаем названия команд: первая и третья значимые ячейки
-            home_team = None
-            away_team = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None and not re.match(r'\d+:\d+', text):
-                    home_team = normalize_team_name(text)
-                elif text and text != ':' and away_team is None and not re.match(r'\d+:\d+', text):
-                    away_team = normalize_team_name(text)
-                    if home_team and away_team:
-                        break
-            if not home_team or not away_team:
-                continue
-            # Ищем ячейку с общим счётом (формат "3:1" или "0:3")
-            score_cell = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if re.match(r'^\d+:\d+$', text):
-                    score_cell = cell
-                    break
-            if not score_cell:
-                continue
-            total = score_cell.get_text(strip=True)
-            home_sets, away_sets = map(int, total.split(':'))
-            # Ищем ячейку с очками по партиям (формат "(25:20, 18:25, ...)")
-            rounds_cell = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if '(' in text and ')' in text and ':' in text:
-                    rounds_cell = cell
-                    break
-            home_points = away_points = 0
-            if rounds_cell:
-                rounds_text = rounds_cell.get_text(strip=True)
-                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-                home_points = sum(int(p[0]) for p in pairs)
-                away_points = sum(int(p[1]) for p in pairs)
-            games.append({
-                'home': home_team,
-                'away': away_team,
-                'home_sets': home_sets,
-                'away_sets': away_sets,
-                'home_points': home_points,
-                'away_points': away_points
-            })
+        return teams
 
-    # ----- 3. Если нашли игры – накапливаем очки для команд и сохраняем для H2H -----
+    game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
+    for row in game_rows:
+        cells = row.find_all('td')
+        if len(cells) < 4:
+            continue
+
+        # Извлекаем названия команд: первая и третья значимые ячейки, пропуская ":", "МЦ" и счёт
+        home_team = None
+        away_team = None
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            # Пропускаем пустые, двоеточие, ссылки на МЦ, скобки и счёт вида "3:1"
+            if text and text != ':' and 'МЦ' not in text and '(' not in text and not re.match(r'^\d+:\d+$', text):
+                if home_team is None:
+                    home_team = normalize_team_name(text)
+                elif away_team is None:
+                    away_team = normalize_team_name(text)
+                    break
+        if not home_team or not away_team:
+            continue
+
+        # Ищем ячейку с общим счётом (строго "3:1" или "0:3")
+        score_cell = None
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            if re.match(r'^\d+:\d+$', text):
+                score_cell = cell
+                break
+        if not score_cell:
+            continue
+        total = score_cell.get_text(strip=True)
+        home_sets, away_sets = map(int, total.split(':'))
+
+        # Ищем ячейку с очками по партиям (содержит скобки и двоеточия)
+        rounds_cell = None
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            if '(' in text and ')' in text and ':' in text:
+                rounds_cell = cell
+                break
+        home_points = away_points = 0
+        if rounds_cell:
+            rounds_text = rounds_cell.get_text(strip=True)
+            pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+            home_points = sum(int(p[0]) for p in pairs)
+            away_points = sum(int(p[1]) for p in pairs)
+
+        games.append({
+            'home': home_team,
+            'away': away_team,
+            'home_sets': home_sets,
+            'away_sets': away_sets,
+            'home_points': home_points,
+            'away_points': away_points
+        })
+
+    # ----- 3. Накопление очков по командам и сохранение матчей для H2H -----
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -276,11 +275,11 @@ def parse_legavolley_femminile(html):
 
 
 # ------------------------------------------------------------
-# 5. Парсер для tvf.org.tr (турецкая женская лига) – временная версия (без групп)
+# 5. Парсер для tvf.org.tr (турецкая женская лига) – упрощённый (без групп)
 # ------------------------------------------------------------
 def parse_tvf(html, url=None, stage=None, group=None):
     soup = BeautifulSoup(html, 'html.parser')
-    # Поскольку с группами проблемы, пока парсим только то, что есть на странице (без дополнительных параметров)
+    # Пробуем найти таблицу с классами
     table = soup.find('table', class_=re.compile(r'table|standings|puan|ranking'))
     if not table:
         table = soup.find('table')
