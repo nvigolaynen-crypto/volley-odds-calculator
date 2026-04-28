@@ -127,6 +127,7 @@ def parse_volleyru(html, url):
         if len(tables) >= 2:
             games_table = tables[1]
     if games_table:
+        # Находим строки матчей
         game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
         if not game_rows:
             all_rows = games_table.find_all('tr')
@@ -137,17 +138,19 @@ def parse_volleyru(html, url):
             if len(cells) < 4:
                 continue
             
-            # Извлекаем названия команд: первая и третья значимые ячейки
+            # Извлекаем названия команд
             home_team = None
             away_team = None
             for cell in cells:
                 text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None and not re.match(r'\d+:\d+', text):
+                # Пропускаем ячейки, содержащие только двоеточие или счёт
+                if text == ':' or re.match(r'^\d+:\d+$', text):
+                    continue
+                if home_team is None:
                     home_team = normalize_team_name(text)
-                elif text and text != ':' and away_team is None and not re.match(r'\d+:\d+', text):
+                elif away_team is None:
                     away_team = normalize_team_name(text)
-                    if home_team and away_team:
-                        break
+                    break
             if not home_team or not away_team:
                 continue
             
