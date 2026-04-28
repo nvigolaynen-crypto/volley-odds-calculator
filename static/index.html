@@ -33,10 +33,30 @@
             align-items: center;
             gap: 10px;
         }
-        .sub {
-            color: #5a6e94;
-            margin-bottom: 25px;
-            font-size: 14px;
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .tab {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            color: #4c9aff;
+            border-bottom: 2px solid #4c9aff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
         input, button, .checkbox-label {
             width: 100%;
@@ -126,6 +146,16 @@
             opacity: 0.75;
             margin-top: 4px;
         }
+        .manual-team-card {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 10px 0;
+            border: 1px solid #e2e8f0;
+        }
+        .manual-team-card input {
+            margin: 5px 0;
+        }
         .vs-div {
             text-align: center;
             font-size: 28px;
@@ -207,15 +237,41 @@
 <div class="container">
     <div class="card">
         <h1>🏐 Volley Odds Calculator</h1>
-        <div class="sub">Автоматический парсинг турнирных таблиц и учёт личных встреч (H2H)</div>
+        <div class="sub">Автоматический парсинг турнирных таблиц + ручной ввод</div>
 
-        <input type="text" id="url-input" placeholder="https://...">
-        <div class="checkbox-wrapper">
-            <input type="checkbox" id="merge-phases">
-            <label for="merge-phases" style="margin:0; width:auto;">📊 Объединить все этапы (суммировать статистику)</label>
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('parse')">🌐 Парсинг сайтов</button>
+            <button class="tab" onclick="switchTab('manual')">✍️ Ручной ввод</button>
         </div>
-        <button id="parse-btn">🚀 Парсить таблицу</button>
-        <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 При объединении этапов данные одинаковых команд складываются (сеты и очки за все фазы).</div>
+
+        <!-- Вкладка парсинга -->
+        <div id="parse-tab" class="tab-content active">
+            <input type="text" id="url-input" placeholder="https://...">
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="merge-phases">
+                <label for="merge-phases" style="margin:0; width:auto;">📊 Объединить все этапы (суммировать статистику)</label>
+            </div>
+            <button id="parse-btn">🚀 Парсить таблицу</button>
+            <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 При объединении этапов данные одинаковых команд складываются (сеты и очки за все фазы).</div>
+        </div>
+
+        <!-- Вкладка ручного ввода -->
+        <div id="manual-tab" class="tab-content">
+            <div id="manual-teams-container">
+                <div class="manual-team-card">
+                    <input type="text" placeholder="Название команды" id="manual-name-0">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                        <input type="number" placeholder="Сеты выиграно" id="manual-sets-won-0" style="flex: 1;">
+                        <input type="number" placeholder="Сеты проиграно" id="manual-sets-lost-0" style="flex: 1;">
+                        <input type="number" placeholder="Очки забито" id="manual-points-won-0" style="flex: 1;">
+                        <input type="number" placeholder="Очки пропущено" id="manual-points-lost-0" style="flex: 1;">
+                    </div>
+                </div>
+            </div>
+            <button onclick="addManualTeam()" style="background: #4CAF50; margin-top: 10px;">+ Добавить команду</button>
+            <button onclick="loadManualTeams()" style="background: #2196F3; margin-top: 10px;">📥 Загрузить команды</button>
+            <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 Введите свои данные вручную, если парсинг не работает.</div>
+        </div>
 
         <div id="status" class="status"></div>
         <div class="loading" id="loading"><div class="spinner"></div><div style="margin-top: 12px;">Парсинг...</div></div>
@@ -231,11 +287,11 @@
                     <div id="away-list"></div>
                 </div>
             </div>
-            <div class="checkbox-wrapper" style="margin-top: 15px;">
+            <div class="checkbox-wrapper">
                 <input type="checkbox" id="use-h2h">
                 <label for="use-h2h" style="margin:0; width:auto;">📈 Учитывать историю личных встреч (H2H)</label>
             </div>
-            <div class="checkbox-wrapper" style="margin-top: 5px;">
+            <div class="checkbox-wrapper">
                 <input type="checkbox" id="neutral-ground">
                 <label for="neutral-ground" style="margin:0; width:auto;">🏟️ Нейтральная площадка (отключить фактор дома)</label>
             </div>
@@ -249,7 +305,7 @@
 
         <div class="footer-note">
             ⚡ Прогноз основан на статистике сетов и очков. Не учитывает составы, травмы, мотивацию.<br>
-            🔄 H2H анализирует все сыгранные матчи между выбранными командами.
+            🔄 H2H анализирует все сыгранные матчи между выбранными командами (если доступны).
         </div>
     </div>
 </div>
@@ -258,6 +314,7 @@
     let currentTeams = [];
     let selectedHome = null;
     let selectedAway = null;
+    let manualTeamCount = 1;
 
     const statusDiv = document.getElementById('status');
     const loadingDiv = document.getElementById('loading');
@@ -265,13 +322,25 @@
     const teamSelectionDiv = document.getElementById('team-selection');
     const resultDiv = document.getElementById('result');
 
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        if (tab === 'parse') {
+            document.querySelectorAll('.tab')[0].classList.add('active');
+            document.getElementById('parse-tab').classList.add('active');
+        } else {
+            document.querySelectorAll('.tab')[1].classList.add('active');
+            document.getElementById('manual-tab').classList.add('active');
+        }
+        teamSelectionDiv.style.display = 'none';
+        resultDiv.style.display = 'none';
+    }
+
     function showStatus(msg, isError) {
         statusDiv.textContent = msg;
         statusDiv.className = `status ${isError ? 'status-error' : 'status-success'}`;
         statusDiv.style.display = 'block';
-        setTimeout(() => {
-            statusDiv.style.display = 'none';
-        }, 5000);
+        setTimeout(() => { statusDiv.style.display = 'none'; }, 5000);
     }
 
     async function parseTable() {
@@ -297,7 +366,7 @@
 
             if (data.success && data.teams && data.teams.length > 0) {
                 currentTeams = data.teams;
-                showStatus(`✅ Загружено ${currentTeams.length} команд (${mergePhases ? 'все этапы объединены' : 'только первый этап'})`, false);
+                showStatus(`✅ Загружено ${currentTeams.length} команд (${mergePhases ? 'все этапы объединены' : 'текущий этап'})`, false);
                 renderTeamLists();
                 teamSelectionDiv.style.display = 'block';
             } else {
@@ -327,13 +396,12 @@
 
         currentTeams.forEach(team => {
             const stats = formatTeamStats(team);
-            // Домашняя карточка
             const homeCard = document.createElement('div');
             homeCard.className = 'team-item';
             homeCard.innerHTML = `<div class="team-name">${escapeHtml(team.name)}</div><div class="team-stats">${stats}</div>`;
             homeCard.onclick = () => selectTeam('home', team.name);
             homeContainer.appendChild(homeCard);
-            // Гостевая карточка
+
             const awayCard = document.createElement('div');
             awayCard.className = 'team-item';
             awayCard.innerHTML = `<div class="team-name">${escapeHtml(team.name)}</div><div class="team-stats">${stats}</div>`;
@@ -347,23 +415,15 @@
     function selectTeam(type, teamName) {
         if (type === 'home') {
             selectedHome = teamName;
-            const items = document.querySelectorAll('#home-list .team-item');
-            items.forEach(el => {
-                if (el.querySelector('.team-name').innerText === teamName) {
-                    el.classList.add('selected');
-                } else {
-                    el.classList.remove('selected');
-                }
+            document.querySelectorAll('#home-list .team-item').forEach(el => {
+                if (el.querySelector('.team-name').innerText === teamName) el.classList.add('selected');
+                else el.classList.remove('selected');
             });
         } else {
             selectedAway = teamName;
-            const items = document.querySelectorAll('#away-list .team-item');
-            items.forEach(el => {
-                if (el.querySelector('.team-name').innerText === teamName) {
-                    el.classList.add('selected');
-                } else {
-                    el.classList.remove('selected');
-                }
+            document.querySelectorAll('#away-list .team-item').forEach(el => {
+                if (el.querySelector('.team-name').innerText === teamName) el.classList.add('selected');
+                else el.classList.remove('selected');
             });
         }
     }
@@ -461,10 +521,57 @@
         });
     }
 
+    // Ручной ввод
+    function addManualTeam() {
+        const container = document.getElementById('manual-teams-container');
+        const newCard = document.createElement('div');
+        newCard.className = 'manual-team-card';
+        newCard.innerHTML = `
+            <input type="text" placeholder="Название команды" id="manual-name-${manualTeamCount}">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                <input type="number" placeholder="Сеты выиграно" id="manual-sets-won-${manualTeamCount}" style="flex: 1;">
+                <input type="number" placeholder="Сеты проиграно" id="manual-sets-lost-${manualTeamCount}" style="flex: 1;">
+                <input type="number" placeholder="Очки забито" id="manual-points-won-${manualTeamCount}" style="flex: 1;">
+                <input type="number" placeholder="Очки пропущено" id="manual-points-lost-${manualTeamCount}" style="flex: 1;">
+            </div>
+            <button onclick="this.parentElement.remove()" style="background: #f44336; margin-top: 5px; padding: 5px;">Удалить</button>
+        `;
+        container.appendChild(newCard);
+        manualTeamCount++;
+    }
+
+    function loadManualTeams() {
+        const newTeams = [];
+        for (let i = 0; i < manualTeamCount; i++) {
+            const nameInput = document.getElementById(`manual-name-${i}`);
+            if (nameInput && nameInput.value.trim()) {
+                newTeams.push({
+                    name: nameInput.value.trim(),
+                    sets_won: parseInt(document.getElementById(`manual-sets-won-${i}`)?.value) || 0,
+                    sets_lost: parseInt(document.getElementById(`manual-sets-lost-${i}`)?.value) || 0,
+                    points_won: parseInt(document.getElementById(`manual-points-won-${i}`)?.value) || null,
+                    points_lost: parseInt(document.getElementById(`manual-points-lost-${i}`)?.value) || null
+                });
+            }
+        }
+        if (newTeams.length < 2) {
+            showStatus('❌ Введите минимум 2 команды', true);
+            return;
+        }
+        currentTeams = newTeams;
+        showStatus(`✅ Загружено ${currentTeams.length} команд из ручного ввода`, false);
+        renderTeamLists();
+        teamSelectionDiv.style.display = 'block';
+        switchTab('manual');
+    }
+
     // Привязываем события
     parseBtn.onclick = parseTable;
     document.getElementById('calc-btn').onclick = calculateOdds;
     document.getElementById('reset-btn').onclick = reset;
+    window.addManualTeam = addManualTeam;
+    window.loadManualTeams = loadManualTeams;
+    window.switchTab = switchTab;
 </script>
 </body>
 </html>
