@@ -80,7 +80,7 @@ def parse_fpv_dataproject(html, merge_phases=False):
 
 
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России) – улучшенный
+# 2. Парсер для volley.ru (чемпионат России) – улучшенный (парсинг очков из таблицы матчей)
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
@@ -119,51 +119,89 @@ def parse_volleyru(html, url):
     if not teams:
         return teams
 
-    # ----- 2. Парсим матчи (все игры) – вторая таблица или строки с классом table-game -----
+    # ----- 2. Парсим матчи (все игры) – ищем таблицу с классом 's-table s-table--round' -----
     games = []
-    tables = soup.find_all('table', class_='s-table')
-    if len(tables) >= 2:
-        games_table = tables[1]
+    games_table = soup.find('table', class_='s-table s-table--round')
+    if games_table:
         game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
+        for row in game_rows:
+            team_cells = row.find_all('td')
+            if len(team_cells) < 4:
+                continue
+            home_team = away_team = None
+            for cell in team_cells:
+                text = cell.get_text(strip=True)
+                if text and text != ':' and home_team is None:
+                    home_team = normalize_team_name(text)
+                elif text and text != ':' and away_team is None:
+                    away_team = normalize_team_name(text)
+                    break
+            if not home_team or not away_team:
+                continue
+            scores_cell = row.find('td', class_='s-table__total-score')
+            if not scores_cell:
+                continue
+            total = scores_cell.get_text(strip=True)
+            if ':' not in total:
+                continue
+            home_sets, away_sets = map(int, total.split(':'))
+            rounds_cell = row.find('td', class_='s-table__rounds-score')
+            home_points = away_points = 0
+            if rounds_cell:
+                rounds_text = rounds_cell.get_text(strip=True)
+                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+                home_points = sum(int(p[0]) for p in pairs)
+                away_points = sum(int(p[1]) for p in pairs)
+            games.append({
+                'home': home_team,
+                'away': away_team,
+                'home_sets': home_sets,
+                'away_sets': away_sets,
+                'home_points': home_points,
+                'away_points': away_points
+            })
     else:
-        game_rows = soup.find_all('tr', class_=re.compile(r'table-game'))
-
-    for row in game_rows:
-        team_cells = row.find_all('td')
-        if len(team_cells) < 4:
-            continue
-        home_team = away_team = None
-        for cell in team_cells:
-            text = cell.get_text(strip=True)
-            if text and text != ':' and home_team is None:
-                home_team = normalize_team_name(text)
-            elif text and text != ':' and away_team is None:
-                away_team = normalize_team_name(text)
-                break
-        if not home_team or not away_team:
-            continue
-        scores_cell = row.find('td', class_='s-table__total-score')
-        if not scores_cell:
-            continue
-        total = scores_cell.get_text(strip=True)
-        if ':' not in total:
-            continue
-        home_sets, away_sets = map(int, total.split(':'))
-        rounds_cell = row.find('td', class_='s-table__rounds-score')
-        home_points = away_points = 0
-        if rounds_cell:
-            rounds_text = rounds_cell.get_text(strip=True)
-            pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-            home_points = sum(int(p[0]) for p in pairs)
-            away_points = sum(int(p[1]) for p in pairs)
-        games.append({
-            'home': home_team,
-            'away': away_team,
-            'home_sets': home_sets,
-            'away_sets': away_sets,
-            'home_points': home_points,
-            'away_points': away_points
-        })
+        # fallback: вторая таблица с классом s-table
+        tables = soup.find_all('table', class_='s-table')
+        if len(tables) >= 2:
+            games_table = tables[1]
+            game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
+            for row in game_rows:
+                team_cells = row.find_all('td')
+                if len(team_cells) < 4:
+                    continue
+                home_team = away_team = None
+                for cell in team_cells:
+                    text = cell.get_text(strip=True)
+                    if text and text != ':' and home_team is None:
+                        home_team = normalize_team_name(text)
+                    elif text and text != ':' and away_team is None:
+                        away_team = normalize_team_name(text)
+                        break
+                if not home_team or not away_team:
+                    continue
+                scores_cell = row.find('td', class_='s-table__total-score')
+                if not scores_cell:
+                    continue
+                total = scores_cell.get_text(strip=True)
+                if ':' not in total:
+                    continue
+                home_sets, away_sets = map(int, total.split(':'))
+                rounds_cell = row.find('td', class_='s-table__rounds-score')
+                home_points = away_points = 0
+                if rounds_cell:
+                    rounds_text = rounds_cell.get_text(strip=True)
+                    pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+                    home_points = sum(int(p[0]) for p in pairs)
+                    away_points = sum(int(p[1]) for p in pairs)
+                games.append({
+                    'home': home_team,
+                    'away': away_team,
+                    'home_sets': home_sets,
+                    'away_sets': away_sets,
+                    'home_points': home_points,
+                    'away_points': away_points
+                })
 
     # ----- 3. Если нашли игры – накапливаем очки для команд и сохраняем для H2H -----
     if games:
@@ -442,7 +480,7 @@ def detect_parser(html, url):
 
 
 # ------------------------------------------------------------
-# Функции для H2H
+# Функции для H2H (личные встречи)
 # ------------------------------------------------------------
 def get_h2h_matches(team1, team2, matches):
     return [m for m in matches if (m['home'] == team1 and m['away'] == team2) or (m['home'] == team2 and m['away'] == team1)]
@@ -467,8 +505,8 @@ def calculate_h2h_factor(team1, team2, matches):
             total_sets_2 += m['home_sets']
             total_points_1 += m['away_points']
             total_points_2 += m['home_points']
-    sets_ratio = (total_sets_1 / max(total_sets_2, 1)) if total_sets_2 > 0 else total_sets_1 + 1
-    points_ratio = (total_points_1 / max(total_points_2, 1)) if total_points_2 > 0 else total_points_1 + 1
+    sets_ratio = total_sets_1 / max(total_sets_2, 1) if total_sets_2 > 0 else total_sets_1 + 1
+    points_ratio = total_points_1 / max(total_points_2, 1) if total_points_2 > 0 else total_points_1 + 1
     return max(0.5, min(2.0, (sets_ratio * points_ratio) ** 0.5))
 
 
