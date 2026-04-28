@@ -10,14 +10,12 @@ from collections import defaultdict
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-
 # ------------------------------------------------------------
 # Утилита для нормализации названий команд (удаляем город в скобках)
 # ------------------------------------------------------------
 def normalize_team_name(name):
     name = re.sub(r'\s*\([^)]*\)', '', name)
     return name.strip()
-
 
 # ------------------------------------------------------------
 # 1. Парсер для fpv-web.dataproject.com (португальская лига)
@@ -273,54 +271,49 @@ def parse_legavolley_femminile(html):
 # 5. Парсер для tvf.org.tr (турецкая женская лига) – с поддержкой этапов и групп
 # ------------------------------------------------------------
 def parse_tvf_stages_and_groups(html):
-    """Извлекает доступные этапы (тур) и группы из страницы TVF"""
+    """Извлекает доступные этапы (тур) и для каждого этапа список групп."""
     soup = BeautifulSoup(html, 'html.parser')
+    # Ищем основной селект для этапов
+    stage_select = soup.find('select', {'id': 'filterSelectMain'})
     stages = []
-    groups = []
-    # Ищем селекторы для этапов (например, кнопки или выпадающий список)
-    # На скриншотах видно: "Lig Etabı", "Yarı Final", "Final" – это вкладки или выпадающий список.
-    # Пробуем найти select с id="filterSelectMain"
-    select_main = soup.find('select', {'id': 'filterSelectMain'})
-    if select_main:
-        for option in select_main.find_all('option'):
+    groups_by_stage = {}
+    if stage_select:
+        for option in stage_select.find_all('option'):
             val = option.get('value')
             text = option.get_text(strip=True)
             if val:
                 stages.append({'value': val, 'label': text})
-    # Если не нашли, ищем кнопки или ссылки с фильтрами
-    if not stages:
-        filter_btns = soup.find_all('button', class_=re.compile(r'filter'))
-        for btn in filter_btns:
-            text = btn.get_text(strip=True)
-            if text in ['Lig Etabı', 'Yarı Final', 'Final']:
-                stages.append({'value': text, 'label': text})
-    # Группы: select с id="filterSelect1" (или подобный)
-    select_group = soup.find('select', {'id': 'filterSelect1'})
-    if select_group:
-        for option in select_group.find_all('option'):
+                groups_by_stage[val] = []
+    # Ищем селект для группы (может быть один на всех этапах или зависеть от этапа)
+    group_select = soup.find('select', {'id': 'filterSelect1'})
+    if group_select:
+        for option in group_select.find_all('option'):
             val = option.get('value')
             text = option.get_text(strip=True)
-            if val:
-                groups.append({'value': val, 'label': text})
-    return stages, groups
+            if val and text:
+                # Для простоты добавим группы для каждого этапа (если структура одинакова)
+                for stage in stages:
+                    groups_by_stage[stage['value']].append({'value': val, 'label': text})
+    return stages, groups_by_stage
+
 
 def parse_tvf(html, url=None, stage=None, group=None):
     """
     Парсер TVF, принимает выбранный этап и группу.
-    Если stage и group заданы, пытаемся подставить их в URL и перезагрузить.
+    Если stage и group заданы, формирует новый URL с параметрами tur и grup.
     """
-    # Если указаны stage и group, формируем новый URL с параметрами
-    if stage and group and url:
-        # Пример: https://tvf.org.tr/lig/kadinlar-1-ligi?tur=FNL&grup=-
-        parsed_url = url.split('?')[0]
-        new_url = f"{parsed_url}?tur={stage}&grup={group}"
+    if stage and url:
+        base_url = url.split('?')[0]
+        new_url = f"{base_url}?tur={stage}"
+        if group:
+            new_url += f"&grup={group}"
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             resp = requests.get(new_url, headers=headers, timeout=30)
             if resp.status_code == 200:
                 html = resp.text
         except:
-            pass  # fallback к исходному html
+            pass
 
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -509,8 +502,8 @@ def parse():
     data = request.json
     url = data.get('url')
     merge_phases = data.get('merge_phases', False)
-    stage = data.get('stage', None)    # для TVF
-    group = data.get('group', None)    # для TVF
+    stage = data.get('stage', None)
+    group = data.get('group', None)
 
     if not url:
         return jsonify({'error': 'URL не указан'}), 400
@@ -521,14 +514,8 @@ def parse():
         response.raise_for_status()
         html = response.text
 
-        # Если это TVF и переданы stage/group, передаём их в парсер
         if 'tvf.org.tr' in url:
-            extra_args = {}
-            if stage:
-                extra_args['stage'] = stage
-            if group:
-                extra_args['group'] = group
-            # Парсер должен принять эти параметры
+            # Для TVF передаём stage и group
             teams = parse_tvf(html, url, stage, group)
         else:
             parser = detect_parser(html, url)
@@ -551,7 +538,7 @@ def parse():
 
 @app.route('/api/tvf/stages', methods=['POST'])
 def tvf_stages():
-    """Получить доступные этапы и группы для TVF"""
+    """Получить доступные этапы для TVF"""
     data = request.json
     url = data.get('url')
     if not url:
@@ -561,8 +548,36 @@ def tvf_stages():
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         html = response.text
-        stages, groups = parse_tvf_stages_and_groups(html)
-        return jsonify({'stages': stages, 'groups': groups})
+        stages, _ = parse_tvf_stages_and_groups(html)
+        return jsonify({'stages': stages})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tvf/groups', methods=['POST'])
+def tvf_groups():
+    """Получить группы для выбранного этапа TVF"""
+    data = request.json
+    url = data.get('url')
+    stage = data.get('stage')
+    if not url or not stage:
+        return jsonify({'error': 'Не указан URL или этап'}), 400
+    try:
+        base_url = url.split('?')[0]
+        new_url = f"{base_url}?tur={stage}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(new_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        group_select = soup.find('select', {'id': 'filterSelect1'})
+        groups = []
+        if group_select:
+            for option in group_select.find_all('option'):
+                val = option.get('value')
+                text = option.get_text(strip=True)
+                if val:
+                    groups.append({'value': val, 'label': text})
+        return jsonify({'groups': groups})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -584,6 +599,7 @@ def calculate():
     if not home or not away:
         return jsonify({'error': 'Команды не найдены'}), 400
 
+    # BT вероятность (на основе сетов)
     home_strength = home['sets_won'] / max(home['sets_lost'], 1)
     away_strength = away['sets_won'] / max(away['sets_lost'], 1)
     home_adv = 1.05 if not neutral_ground else 1.0
@@ -591,6 +607,7 @@ def calculate():
     win_prob_bt = expected_ratio / (1 + expected_ratio)
     win_prob_bt = max(0.05, min(0.95, win_prob_bt))
 
+    # PR вероятность (на основе очков, если есть)
     win_prob_pr = None
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
         home_pts_ratio = home['points_won'] / max(home['points_lost'], 1)
@@ -601,6 +618,7 @@ def calculate():
 
     final_prob = win_prob_pr if win_prob_pr is not None else win_prob_bt
 
+    # H2H коррекция
     if use_h2h:
         matches = app.config.get('LAST_MATCHES', [])
         if matches:
@@ -617,6 +635,7 @@ def calculate():
         recommendation = f"Ставка на {away['name']}"
         fair_odds = away_win_odds
 
+    # Фора по очкам
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
         home_pts_ratio = home['points_won'] / max(home['points_lost'], 1)
         away_pts_ratio = away['points_won'] / max(away['points_lost'], 1)
