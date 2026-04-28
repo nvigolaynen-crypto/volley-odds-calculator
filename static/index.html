@@ -58,7 +58,7 @@
         .tab-content.active {
             display: block;
         }
-        input, button, .checkbox-label {
+        input, select, button, .checkbox-label {
             width: 100%;
             padding: 12px 16px;
             margin: 10px 0;
@@ -66,11 +66,11 @@
             font-size: 16px;
             transition: 0.2s;
         }
-        input {
+        input, select {
             border: 2px solid #d0d7de;
             background: white;
         }
-        input:focus {
+        input:focus, select:focus {
             border-color: #4c9aff;
             outline: none;
             box-shadow: 0 0 0 3px rgba(76,154,255,0.2);
@@ -97,6 +97,15 @@
         }
         .checkbox-wrapper input {
             width: 20px;
+            margin: 0;
+        }
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .filter-row select {
+            flex: 1;
             margin: 0;
         }
         .teams-grid {
@@ -230,6 +239,7 @@
         @media (max-width: 700px) {
             .teams-grid { grid-template-columns: 1fr; }
             .handicap-line { font-size: 20px; }
+            .filter-row { flex-direction: column; }
         }
     </style>
 </head>
@@ -251,8 +261,20 @@
                 <input type="checkbox" id="merge-phases">
                 <label for="merge-phases" style="margin:0; width:auto;">📊 Объединить все этапы (суммировать статистику)</label>
             </div>
+            <!-- Блок для TVF фильтров (скрыт по умолчанию) -->
+            <div id="tvf-filters" style="display: none;">
+                <div class="filter-row">
+                    <select id="tvf-stage">
+                        <option value="">Загрузка этапов...</option>
+                    </select>
+                    <select id="tvf-group">
+                        <option value="">Загрузка групп...</option>
+                    </select>
+                </div>
+                <button id="apply-tvf-filters" style="background: #2196F3;">Применить фильтры</button>
+            </div>
             <button id="parse-btn">🚀 Парсить таблицу</button>
-            <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 При объединении этапов данные одинаковых команд складываются (сеты и очки за все фазы).</div>
+            <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 При объединении этапов данные одинаковых команд складываются (сеты и очки за все фазы).<br>Для TVF можно выбрать этап и группу после ввода URL.</div>
         </div>
 
         <!-- Вкладка ручного ввода -->
@@ -315,6 +337,7 @@
     let selectedHome = null;
     let selectedAway = null;
     let manualTeamCount = 1;
+    let currentUrl = '';
 
     const statusDiv = document.getElementById('status');
     const loadingDiv = document.getElementById('loading');
@@ -343,13 +366,60 @@
         setTimeout(() => { statusDiv.style.display = 'none'; }, 5000);
     }
 
+    async function loadTVFFilters(url) {
+        try {
+            const response = await fetch('/api/tvf/stages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+            const data = await response.json();
+            if (data.stages && data.stages.length > 0) {
+                const stageSelect = document.getElementById('tvf-stage');
+                stageSelect.innerHTML = '<option value="">-- Выберите этап --</option>';
+                data.stages.forEach(stage => {
+                    stageSelect.innerHTML += `<option value="${stage.value}">${stage.label}</option>`;
+                });
+            }
+            if (data.groups && data.groups.length > 0) {
+                const groupSelect = document.getElementById('tvf-group');
+                groupSelect.innerHTML = '<option value="">-- Выберите группу --</option>';
+                data.groups.forEach(group => {
+                    groupSelect.innerHTML += `<option value="${group.value}">${group.label}</option>`;
+                });
+            }
+            document.getElementById('tvf-filters').style.display = 'block';
+        } catch (error) {
+            console.error('Ошибка загрузки фильтров TVF:', error);
+        }
+    }
+
+    document.getElementById('url-input').addEventListener('change', function() {
+        const url = this.value.trim();
+        if (url.includes('tvf.org.tr')) {
+            loadTVFFilters(url);
+        } else {
+            document.getElementById('tvf-filters').style.display = 'none';
+        }
+    });
+
     async function parseTable() {
         const url = document.getElementById('url-input').value.trim();
         if (!url) {
             showStatus('❌ Введите URL турнирной таблицы', true);
             return;
         }
+        currentUrl = url;
         const mergePhases = document.getElementById('merge-phases').checked;
+        let stage = null, group = null;
+        if (url.includes('tvf.org.tr')) {
+            stage = document.getElementById('tvf-stage').value;
+            group = document.getElementById('tvf-group').value;
+            if (!stage || !group) {
+                showStatus('❌ Для TVF выберите этап и группу', true);
+                return;
+            }
+        }
 
         loadingDiv.style.display = 'block';
         teamSelectionDiv.style.display = 'none';
@@ -360,13 +430,13 @@
             const response = await fetch('/api/parse', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url, merge_phases: mergePhases })
+                body: JSON.stringify({ url: url, merge_phases: mergePhases, stage: stage, group: group })
             });
             const data = await response.json();
 
             if (data.success && data.teams && data.teams.length > 0) {
                 currentTeams = data.teams;
-                showStatus(`✅ Загружено ${currentTeams.length} команд (${mergePhases ? 'все этапы объединены' : 'текущий этап'})`, false);
+                showStatus(`✅ Загружено ${currentTeams.length} команд`, false);
                 renderTeamLists();
                 teamSelectionDiv.style.display = 'block';
             } else {
@@ -508,6 +578,7 @@
         document.getElementById('merge-phases').checked = false;
         document.getElementById('use-h2h').checked = false;
         document.getElementById('neutral-ground').checked = false;
+        document.getElementById('tvf-filters').style.display = 'none';
         statusDiv.style.display = 'none';
     }
 
@@ -572,6 +643,7 @@
     window.addManualTeam = addManualTeam;
     window.loadManualTeams = loadManualTeams;
     window.switchTab = switchTab;
+    document.getElementById('apply-tvf-filters').onclick = parseTable;
 </script>
 </body>
 </html>
