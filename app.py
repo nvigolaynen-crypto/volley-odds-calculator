@@ -3,46 +3,81 @@ from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import os
+from collections import defaultdict
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-def parse_fpv_standings(html):
-    """Парсер для страницы fpv-web.dataproject.com (португальская лига)"""
+def parse_fpv_standings(html, merge_phases=False):
+    """Парсер для fpv-web.dataproject.com
+       merge_phases=False – только первый этап (1ª Fase)
+       merge_phases=True – объединить все этапы, суммируя статистику команд
+    """
     soup = BeautifulSoup(html, 'html.parser')
-    teams = []
     
-    # Находим все строки таблицы, содержащие данные о командах
-    # Классы строк: RG_Standing_Main_AltBackColor и RG_Standing_Main_AltBackColor2
-    rows = soup.find_all('tr', class_=lambda c: c and ('RG_Standing_Main_AltBackColor' in c))
+    if not merge_phases:
+        # Берём только первую вкладку (1ª Fase) – её ID = Content_Main_446
+        first_tab = soup.find('div', id='Content_Main_446')
+        if not first_tab:
+            # fallback: ищем любую вкладку с классом rmpView
+            first_tab = soup.find('div', class_='rmpView')
+        if not first_tab:
+            return []
+        container = first_tab
+    else:
+        # Будем искать все строки во всех вкладках
+        container = soup  # искать по всему документу
+    
+    # Находим строки таблицы
+    if merge_phases:
+        rows = soup.find_all('tr', class_=lambda c: c and ('RG_Standing_Main_AltBackColor' in c))
+    else:
+        rows = container.find_all('tr', class_=lambda c: c and ('RG_Standing_Main_AltBackColor' in c))
+    
+    teams_dict = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
     
     for row in rows:
-        # Название команды – внутри span с id="TeamName"
         team_name_span = row.find('span', id='TeamName')
         if not team_name_span:
             continue
         team_name = team_name_span.get_text(strip=True)
         
-        # Сеты
         sets_won_span = row.find('span', id='SetsWon')
         sets_lost_span = row.find('span', id='SetsLost')
         sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
         sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
         
-        # Очки (мячи)
         points_won_span = row.find('span', id='PuntiFatti')
         points_lost_span = row.find('span', id='PuntiSubiti')
-        points_won = int(points_won_span.get_text(strip=True)) if points_won_span else None
-        points_lost = int(points_lost_span.get_text(strip=True)) if points_lost_span else None
+        points_won = int(points_won_span.get_text(strip=True)) if points_won_span else 0
+        points_lost = int(points_lost_span.get_text(strip=True)) if points_lost_span else 0
         
+        if merge_phases:
+            teams_dict[team_name]['sets_won'] += sets_won
+            teams_dict[team_name]['sets_lost'] += sets_lost
+            teams_dict[team_name]['points_won'] += points_won
+            teams_dict[team_name]['points_lost'] += points_lost
+        else:
+            teams_dict[team_name] = {
+                'sets_won': sets_won,
+                'sets_lost': sets_lost,
+                'points_won': points_won,
+                'points_lost': points_lost
+            }
+    
+    # Преобразуем в список
+    teams = []
+    for name, stats in teams_dict.items():
         teams.append({
-            'name': team_name,
-            'sets_won': sets_won,
-            'sets_lost': sets_lost,
-            'points_won': points_won,
-            'points_lost': points_lost
+            'name': name,
+            'sets_won': stats['sets_won'],
+            'sets_lost': stats['sets_lost'],
+            'points_won': stats['points_won'] if stats['points_won'] > 0 else None,
+            'points_lost': stats['points_lost'] if stats['points_lost'] > 0 else None
         })
     
+    # Сортируем по сетевым показателям (по желанию)
+    teams.sort(key=lambda x: x['sets_won'] / max(x['sets_lost'], 1), reverse=True)
     return teams
 
 @app.route('/')
@@ -53,6 +88,8 @@ def index():
 def parse():
     data = request.json
     url = data.get('url')
+    merge_phases = data.get('merge_phases', False)  # новый параметр
+    
     if not url:
         return jsonify({'error': 'URL не указан'}), 400
     
@@ -61,7 +98,7 @@ def parse():
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
-        teams = parse_fpv_standings(response.text)
+        teams = parse_fpv_standings(response.text, merge_phases=merge_phases)
         
         if not teams:
             return jsonify({'error': 'Не найдены команды в таблице'}), 404
@@ -83,7 +120,7 @@ def calculate():
     if not home or not away:
         return jsonify({'error': 'Команды не найдены'}), 400
     
-    # Коэффициенты на победу (на основе сетов)
+    # Коэффициенты на победу на основе сетов
     home_strength = home['sets_won'] / max(home['sets_lost'], 1)
     away_strength = away['sets_won'] / max(away['sets_lost'], 1)
     expected = home_strength / max(away_strength, 0.01)
@@ -93,8 +130,7 @@ def calculate():
     home_win_odds = round(1 / win_prob, 2)
     away_win_odds = round(1 / (1 - win_prob), 2)
     
-    # Фора по мячам (если есть данные об очках)
-    handicap_line = "Нет данных по очкам"
+    # Фора по мячам
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
         home_pts_strength = home['points_won'] / max(home['points_lost'], 1)
         away_pts_strength = away['points_won'] / max(away['points_lost'], 1)
@@ -109,6 +145,8 @@ def calculate():
             handicap_line = f"{home['name']} (фаворит) дома с форой {abs(handicap)}"
         else:
             handicap_line = f"{away['name']} (фаворит) в гостях с форой -{handicap}"
+    else:
+        handicap_line = "Нет данных по очкам для расчёта форы"
     
     return jsonify({
         'success': True,
