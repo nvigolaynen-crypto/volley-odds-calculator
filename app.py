@@ -273,28 +273,15 @@ def parse_legavolley_femminile(html):
 def parse_tvf_stages_and_groups(html):
     """Извлекает доступные этапы (тур) и для каждого этапа список групп."""
     soup = BeautifulSoup(html, 'html.parser')
-    # Ищем основной селект для этапов
     stage_select = soup.find('select', {'id': 'filterSelectMain'})
     stages = []
-    groups_by_stage = {}
     if stage_select:
         for option in stage_select.find_all('option'):
             val = option.get('value')
             text = option.get_text(strip=True)
             if val:
                 stages.append({'value': val, 'label': text})
-                groups_by_stage[val] = []
-    # Ищем селект для группы (может быть один на всех этапах или зависеть от этапа)
-    group_select = soup.find('select', {'id': 'filterSelect1'})
-    if group_select:
-        for option in group_select.find_all('option'):
-            val = option.get('value')
-            text = option.get_text(strip=True)
-            if val and text:
-                # Для простоты добавим группы для каждого этапа (если структура одинакова)
-                for stage in stages:
-                    groups_by_stage[stage['value']].append({'value': val, 'label': text})
-    return stages, groups_by_stage
+    return stages
 
 
 def parse_tvf(html, url=None, stage=None, group=None):
@@ -515,7 +502,6 @@ def parse():
         html = response.text
 
         if 'tvf.org.tr' in url:
-            # Для TVF передаём stage и group
             teams = parse_tvf(html, url, stage, group)
         else:
             parser = detect_parser(html, url)
@@ -548,7 +534,7 @@ def tvf_stages():
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         html = response.text
-        stages, _ = parse_tvf_stages_and_groups(html)
+        stages = parse_tvf_stages_and_groups(html)
         return jsonify({'stages': stages})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -569,14 +555,49 @@ def tvf_groups():
         response = requests.get(new_url, headers=headers, timeout=30)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        group_select = soup.find('select', {'id': 'filterSelect1'})
+        
         groups = []
+        # Ищем select с id="filterSelect1"
+        group_select = soup.find('select', {'id': 'filterSelect1'})
         if group_select:
             for option in group_select.find_all('option'):
                 val = option.get('value')
                 text = option.get_text(strip=True)
-                if val:
+                if val and text and text not in ['Grup Seçiniz', 'Seçiniz', '-- Seçiniz --']:
                     groups.append({'value': val, 'label': text})
+        
+        # Если не нашли, ищем любой select с опциями-буквами
+        if not groups:
+            all_selects = soup.find_all('select')
+            for sel in all_selects:
+                options = sel.find_all('option')
+                for opt in options:
+                    text = opt.get_text(strip=True)
+                    if re.match(r'^[A-ZÇĞİÖŞÜ]{1,2}$', text):
+                        for opt2 in options:
+                            val2 = opt2.get('value')
+                            text2 = opt2.get_text(strip=True)
+                            if val2 and text2 and text2 not in ['Grup Seçiniz', 'Seçiniz', '-- Seçiniz --']:
+                                groups.append({'value': val2, 'label': text2})
+                        break
+                if groups:
+                    break
+        
+        # Если всё ещё нет, ищем div с классом, содержащим "grup", и ссылки
+        if not groups:
+            group_containers = soup.find_all('div', class_=re.compile(r'grup|group', re.I))
+            for container in group_containers:
+                links = container.find_all('a')
+                for link in links:
+                    href = link.get('href')
+                    text = link.get_text(strip=True)
+                    if href and ('grup' in href or 'group' in href) and text:
+                        match = re.search(r'[?&]grup=([^&]+)', href)
+                        if match:
+                            groups.append({'value': match.group(1), 'label': text})
+                if groups:
+                    break
+        
         return jsonify({'groups': groups})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
