@@ -2,105 +2,184 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volley Odds Calculator</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
-            font-family: Arial, sans-serif;
-            max-width: 900px;
-            margin: 50px auto;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            margin: 0;
             padding: 20px;
-            background: #1a1a2e;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
         }
         .card {
             background: white;
+            border-radius: 25px;
             padding: 30px;
-            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
         }
-        input, button {
+        h1 {
+            margin-top: 0;
+            color: #2c3e66;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .sub {
+            color: #5a6e94;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        input, button, .checkbox-label {
             width: 100%;
-            padding: 12px;
+            padding: 12px 16px;
             margin: 10px 0;
-            border: 1px solid #ddd;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 16px;
+            transition: 0.2s;
+        }
+        input {
+            border: 2px solid #d0d7de;
+            background: white;
+        }
+        input:focus {
+            border-color: #4c9aff;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(76,154,255,0.2);
         }
         button {
-            background: #4CAF50;
+            background: linear-gradient(135deg, #4c9aff, #2a6bc4);
             color: white;
-            cursor: pointer;
             border: none;
+            cursor: pointer;
+            font-weight: bold;
         }
-        button:hover { background: #45a049; }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f0f4fa;
+            padding: 10px 15px;
+            border-radius: 12px;
+            margin: 10px 0;
+        }
+        .checkbox-wrapper input {
+            width: 20px;
+            margin: 0;
+        }
         .teams-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 25px;
             margin: 20px 0;
         }
         .team-list {
-            background: #f5f5f5;
-            border-radius: 10px;
+            background: #f8faff;
+            border-radius: 16px;
             padding: 15px;
-            max-height: 350px;
+            max-height: 400px;
             overflow-y: auto;
+            border: 1px solid #e2e8f0;
+        }
+        .team-list h3 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #1e2f5a;
         }
         .team-item {
             background: white;
-            padding: 8px 10px;
-            margin: 5px 0;
-            border-radius: 5px;
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 12px;
             cursor: pointer;
-            text-align: left;
-            border: 1px solid #ddd;
-            font-size: 14px;
+            transition: 0.1s;
+            border: 1px solid #eef2f7;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-        .team-item:hover { background: #667eea; color: white; }
-        .team-item.selected { background: #4CAF50; color: white; }
-        .team-name { font-weight: bold; }
-        .team-stats { font-size: 11px; opacity: 0.7; margin-top: 3px; }
-        .vs { text-align: center; font-size: 20px; margin: 10px 0; }
-        .result {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+        .team-item:hover {
+            background: #e6f0ff;
+            transform: translateX(4px);
+        }
+        .team-item.selected {
+            background: #2a6bc4;
+            color: white;
+            border-color: #2a6bc4;
+        }
+        .team-name {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .team-stats {
+            font-size: 12px;
+            opacity: 0.75;
+            margin-top: 4px;
+        }
+        .vs-div {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            margin: 5px 0;
+            color: #4c9aff;
+        }
+        .result-card {
+            background: linear-gradient(135deg, #4c9aff, #2a6bc4);
             color: white;
             padding: 25px;
-            border-radius: 10px;
+            border-radius: 20px;
             margin-top: 20px;
             text-align: center;
         }
-        .selected-teams {
-            background: rgba(255,255,255,0.15);
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+        .handicap-line {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 15px 0;
         }
-        .selected-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 20px;
-            margin: 5px 0;
+        .odds-badge {
+            background: rgba(255,255,255,0.2);
+            border-radius: 40px;
+            padding: 8px 20px;
+            display: inline-block;
+            margin: 5px;
         }
-        .selected-team {
-            flex: 1;
+        .status {
+            padding: 12px;
+            border-radius: 12px;
+            margin: 10px 0;
+            display: none;
+        }
+        .status-error {
+            background: #ffe1e1;
+            color: #b00020;
+            border-left: 5px solid #b00020;
+        }
+        .status-success {
+            background: #e1ffe1;
+            color: #1f7a1f;
+            border-left: 5px solid #1f7a1f;
+        }
+        .loading {
+            display: none;
             text-align: center;
-            padding: 10px;
+            padding: 30px;
         }
-        .stats-badge {
-            font-size: 12px;
-            opacity: 0.8;
-            margin-top: 5px;
-        }
-        .handicap { font-size: 32px; font-weight: bold; margin: 15px 0; }
-        .handicap-value { font-size: 48px; font-weight: bold; margin: 10px 0; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 5px; display: none; }
-        .status-error { background: #f8d7da; color: #721c24; }
-        .status-success { background: #d4edda; color: #155724; }
-        .loading { display: none; text-align: center; padding: 20px; }
         .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #4CAF50;
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #4c9aff;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 45px;
+            height: 45px;
             animation: spin 1s linear infinite;
             margin: 0 auto;
         }
@@ -108,222 +187,267 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .help { font-size: 12px; color: #666; margin-top: 5px; }
-        hr { margin: 15px 0; opacity: 0.3; }
+        .footer-note {
+            font-size: 12px;
+            text-align: center;
+            color: #7c8ea0;
+            margin-top: 20px;
+        }
+        hr {
+            margin: 15px 0;
+            opacity: 0.3;
+        }
+        @media (max-width: 700px) {
+            .teams-grid { grid-template-columns: 1fr; }
+            .handicap-line { font-size: 20px; }
+        }
     </style>
 </head>
 <body>
+<div class="container">
     <div class="card">
         <h1>🏐 Volley Odds Calculator</h1>
-        <p>Вставьте ссылку на турнирную таблицу</p>
-        
-        <input type="text" id="url" placeholder="https://...">
-        <button onclick="parseTable()">Парсить таблицу</button>
-        <div class="help">Поддерживаются сайты с HTML-таблицами</div>
-        
+        <div class="sub">Автоматический парсинг турнирных таблиц (FPV DataProject)</div>
+
+        <input type="text" id="url-input" placeholder="https://fpv-web.dataproject.com/CompetitionStandings.aspx?ID=127&PID=171">
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="merge-phases">
+            <label for="merge-phases" style="margin:0; width:auto;">📊 Объединить все этапы (суммировать статистику)</label>
+        </div>
+        <button id="parse-btn">🚀 Парсить таблицу</button>
+        <div class="help-text" style="font-size: 13px; margin-top: 8px; color: #5a6e94;">💡 При объединении этапов данные одинаковых команд складываются (сеты и очки за все фазы).</div>
+
         <div id="status" class="status"></div>
-        <div class="loading" id="loading"><div class="spinner"></div><p>Парсинг...</p></div>
-        
-        <div id="teams-section" style="display:none;">
+        <div class="loading" id="loading"><div class="spinner"></div><div style="margin-top: 12px;">Парсинг...</div></div>
+
+        <div id="team-selection" style="display: none;">
             <div class="teams-grid">
-                <div>
-                    <h4>🏠 Домашняя команда</h4>
-                    <div id="home-list" class="team-list"></div>
+                <div class="team-list">
+                    <h3>🏠 Домашняя команда</h3>
+                    <div id="home-list"></div>
                 </div>
-                <div>
-                    <h4>✈️ Гостевая команда</h4>
-                    <div id="away-list" class="team-list"></div>
+                <div class="team-list">
+                    <h3>✈️ Гостевая команда</h3>
+                    <div id="away-list"></div>
                 </div>
             </div>
-            <button onclick="calculate()">🎯 Рассчитать фору</button>
+            <button id="calc-btn">🎯 Рассчитать прогноз</button>
         </div>
-        
-        <div id="result-section" style="display:none;">
-            <div class="result" id="result"></div>
-            <button onclick="resetCalc()" style="margin-top:15px;">🔄 Новая таблица</button>
+
+        <div id="result" style="display: none;">
+            <div class="result-card" id="result-content"></div>
+            <button id="reset-btn" style="background:#6c757d; margin-top: 15px;">🔄 Новая таблица</button>
+        </div>
+
+        <div class="footer-note">
+            ⚡ Прогноз основан на статистике сетов и очков. Не учитывает составы, травмы, мотивацию.
         </div>
     </div>
-    
-    <script>
-        let teamsData = [];
-        let selectedHome = null;
-        let selectedAway = null;
-        
-        function showStatus(msg, isError) {
-            const div = document.getElementById('status');
-            div.textContent = msg;
-            div.className = `status ${isError ? 'status-error' : 'status-success'}`;
-            div.style.display = 'block';
-            setTimeout(() => div.style.display = 'none', 5000);
+</div>
+
+<script>
+    let currentTeams = [];
+    let selectedHome = null;
+    let selectedAway = null;
+
+    const statusDiv = document.getElementById('status');
+    const loadingDiv = document.getElementById('loading');
+    const parseBtn = document.getElementById('parse-btn');
+    const teamSelectionDiv = document.getElementById('team-selection');
+    const resultDiv = document.getElementById('result');
+
+    function showStatus(msg, isError) {
+        statusDiv.textContent = msg;
+        statusDiv.className = `status ${isError ? 'status-error' : 'status-success'}`;
+        statusDiv.style.display = 'block';
+        setTimeout(() => {
+            statusDiv.style.display = 'none';
+        }, 5000);
+    }
+
+    async function parseTable() {
+        const url = document.getElementById('url-input').value.trim();
+        if (!url) {
+            showStatus('❌ Введите URL турнирной таблицы', true);
+            return;
         }
-        
-        async function parseTable() {
-            const url = document.getElementById('url').value;
-            if (!url) { showStatus('Введите URL', true); return; }
-            
-            document.getElementById('loading').style.display = 'block';
-            
-            try {
-                const res = await fetch('/api/parse', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({url: url})
-                });
-                const data = await res.json();
-                
-                if (data.success && data.teams.length > 0) {
-                    teamsData = data.teams;
-                    showStatus(`✅ Загружено ${data.teams.length} команд`);
-                    displayTeams();
-                } else {
-                    showStatus(`❌ ${data.error || 'Ошибка'}`, true);
-                }
-            } catch(e) {
-                showStatus(`❌ ${e.message}`, true);
-            } finally {
-                document.getElementById('loading').style.display = 'none';
-            }
-        }
-        
-        function formatTeamDisplay(team) {
-            let stats = `Сеты: ${team.sets_won}:${team.sets_lost}`;
-            if (team.points_won && team.points_lost) {
-                stats += ` | Мячи: ${team.points_won}:${team.points_lost}`;
-            }
-            return stats;
-        }
-        
-        function displayTeams() {
-            const homeDiv = document.getElementById('home-list');
-            const awayDiv = document.getElementById('away-list');
-            homeDiv.innerHTML = '';
-            awayDiv.innerHTML = '';
-            
-            teamsData.forEach(team => {
-                const statsText = formatTeamDisplay(team);
-                
-                const div1 = document.createElement('div');
-                div1.className = 'team-item';
-                div1.innerHTML = `<div class="team-name">${team.name}</div><div class="team-stats">${statsText}</div>`;
-                div1.onclick = (function(name) { return function() { selectTeam('home', name); }; })(team.name);
-                homeDiv.appendChild(div1);
-                
-                const div2 = document.createElement('div');
-                div2.className = 'team-item';
-                div2.innerHTML = `<div class="team-name">${team.name}</div><div class="team-stats">${statsText}</div>`;
-                div2.onclick = (function(name) { return function() { selectTeam('away', name); }; })(team.name);
-                awayDiv.appendChild(div2);
+        const mergePhases = document.getElementById('merge-phases').checked;
+
+        loadingDiv.style.display = 'block';
+        teamSelectionDiv.style.display = 'none';
+        resultDiv.style.display = 'none';
+        parseBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, merge_phases: mergePhases })
             });
-            
-            document.getElementById('teams-section').style.display = 'block';
-            selectedHome = null;
-            selectedAway = null;
-        }
-        
-        function selectTeam(type, name) {
-            if (type === 'home') {
-                selectedHome = name;
-                document.querySelectorAll('#home-list .team-item').forEach(el => {
-                    el.classList.remove('selected');
-                    if (el.querySelector('.team-name').textContent === name) el.classList.add('selected');
-                });
+            const data = await response.json();
+
+            if (data.success && data.teams && data.teams.length > 0) {
+                currentTeams = data.teams;
+                showStatus(`✅ Загружено ${currentTeams.length} команд (${mergePhases ? 'все этапы объединены' : 'только первый этап'})`, false);
+                renderTeamLists();
+                teamSelectionDiv.style.display = 'block';
             } else {
-                selectedAway = name;
-                document.querySelectorAll('#away-list .team-item').forEach(el => {
+                showStatus(`❌ ${data.error || 'Не удалось загрузить данные'}`, true);
+            }
+        } catch (error) {
+            showStatus(`❌ Ошибка: ${error.message}`, true);
+        } finally {
+            loadingDiv.style.display = 'none';
+            parseBtn.disabled = false;
+        }
+    }
+
+    function formatTeamStats(team) {
+        let pointsText = '';
+        if (team.points_won && team.points_lost) {
+            pointsText = ` | Мячи: ${team.points_won}:${team.points_lost}`;
+        }
+        return `Сеты: ${team.sets_won}:${team.sets_lost}${pointsText}`;
+    }
+
+    function renderTeamLists() {
+        const homeContainer = document.getElementById('home-list');
+        const awayContainer = document.getElementById('away-list');
+        homeContainer.innerHTML = '';
+        awayContainer.innerHTML = '';
+
+        currentTeams.forEach(team => {
+            const stats = formatTeamStats(team);
+            // Домашняя карточка
+            const homeCard = document.createElement('div');
+            homeCard.className = 'team-item';
+            homeCard.innerHTML = `<div class="team-name">${escapeHtml(team.name)}</div><div class="team-stats">${stats}</div>`;
+            homeCard.onclick = () => selectTeam('home', team.name);
+            homeContainer.appendChild(homeCard);
+            // Гостевая карточка
+            const awayCard = document.createElement('div');
+            awayCard.className = 'team-item';
+            awayCard.innerHTML = `<div class="team-name">${escapeHtml(team.name)}</div><div class="team-stats">${stats}</div>`;
+            awayCard.onclick = () => selectTeam('away', team.name);
+            awayContainer.appendChild(awayCard);
+        });
+        selectedHome = null;
+        selectedAway = null;
+    }
+
+    function selectTeam(type, teamName) {
+        if (type === 'home') {
+            selectedHome = teamName;
+            const items = document.querySelectorAll('#home-list .team-item');
+            items.forEach(el => {
+                if (el.querySelector('.team-name').innerText === teamName) {
+                    el.classList.add('selected');
+                } else {
                     el.classList.remove('selected');
-                    if (el.querySelector('.team-name').textContent === name) el.classList.add('selected');
-                });
-            }
-        }
-        
-        async function calculate() {
-            if (!selectedHome || !selectedAway) {
-                showStatus('Выберите обе команды', true);
-                return;
-            }
-            if (selectedHome === selectedAway) {
-                showStatus('Выберите разные команды', true);
-                return;
-            }
-            
-            document.getElementById('loading').style.display = 'block';
-            
-            try {
-                const res = await fetch('/api/calculate', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        teams: teamsData,
-                        home_team: selectedHome,
-                        away_team: selectedAway
-                    })
-                });
-                const data = await res.json();
-                
-                if (data.success) {
-                    const p = data.prediction;
-                    
-                    const homeTeam = teamsData.find(t => t.name === selectedHome);
-                    const awayTeam = teamsData.find(t => t.name === selectedAway);
-                    
-                    const homeStats = formatTeamDisplay(homeTeam);
-                    const awayStats = formatTeamDisplay(awayTeam);
-                    
-                    let handicapValue = p.handicap_line.match(/[+-]?\d+(?:\.\d+)?/);
-                    handicapValue = handicapValue ? handicapValue[0] : "0";
-                    
-                    let isHomeFavorite = p.handicap_line.includes(`Фора ${p.home_team}`);
-                    let finalLine = "";
-                    
-                    if (isHomeFavorite) {
-                        finalLine = `${p.home_team} (фаворит) дома с форой ${handicapValue}`;
-                    } else if (p.handicap_line.includes(`Фора ${p.away_team}`)) {
-                        finalLine = `${p.away_team} (фаворит) в гостях с форой -${handicapValue}`;
-                    } else {
-                        finalLine = p.handicap_line;
-                    }
-                    
-                    document.getElementById('result').innerHTML = `
-                        <div class="selected-teams">
-                            <div class="selected-row">
-                                <div class="selected-team">
-                                    <strong>🏠 ${p.home_team}</strong>
-                                    <div class="stats-badge">${homeStats}</div>
-                                </div>
-                                <div class="selected-team">
-                                    <strong>✈️ ${p.away_team}</strong>
-                                    <div class="stats-badge">${awayStats}</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div>🎯 ФОРА ПО МЯЧАМ</div>
-                        <div class="handicap-value">${finalLine}</div>
-                        
-                        <hr>
-                        
-                        <div style="font-size:12px; opacity:0.8;">
-                            Победа ${p.home_team}: ${p.home_win_odds} | Победа ${p.away_team}: ${p.away_win_odds}
-                        </div>
-                    `;
-                    document.getElementById('result-section').style.display = 'block';
-                    document.getElementById('teams-section').style.display = 'none';
                 }
-            } catch(e) {
-                showStatus(`Ошибка: ${e.message}`, true);
-            } finally {
-                document.getElementById('loading').style.display = 'none';
+            });
+        } else {
+            selectedAway = teamName;
+            const items = document.querySelectorAll('#away-list .team-item');
+            items.forEach(el => {
+                if (el.querySelector('.team-name').innerText === teamName) {
+                    el.classList.add('selected');
+                } else {
+                    el.classList.remove('selected');
+                }
+            });
+        }
+    }
+
+    async function calculateOdds() {
+        if (!selectedHome || !selectedAway) {
+            showStatus('❌ Выберите обе команды', true);
+            return;
+        }
+        if (selectedHome === selectedAway) {
+            showStatus('❌ Выберите разные команды', true);
+            return;
+        }
+
+        loadingDiv.style.display = 'block';
+        try {
+            const response = await fetch('/api/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    teams: currentTeams,
+                    home_team: selectedHome,
+                    away_team: selectedAway
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                displayResult(data.prediction);
+                teamSelectionDiv.style.display = 'none';
+                resultDiv.style.display = 'block';
+            } else {
+                showStatus(`❌ ${data.error}`, true);
             }
+        } catch (error) {
+            showStatus(`❌ Ошибка: ${error.message}`, true);
+        } finally {
+            loadingDiv.style.display = 'none';
         }
-        
-        function resetCalc() {
-            teamsData = [];
-            selectedHome = null;
-            selectedAway = null;
-            document.getElementById('teams-section').style.display = 'none';
-            document.getElementById('result-section').style.display = 'none';
-            document.getElementById('url').value = '';
-        }
-    </script>
+    }
+
+    function displayResult(pred) {
+        const resultContent = document.getElementById('result-content');
+        const homeStats = currentTeams.find(t => t.name === pred.home_team);
+        const awayStats = currentTeams.find(t => t.name === pred.away_team);
+        const homeStatsText = formatTeamStats(homeStats);
+        const awayStatsText = formatTeamStats(awayStats);
+
+        resultContent.innerHTML = `
+            <div style="display: flex; justify-content: space-between; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+                <div style="flex:1; text-align:center; background:rgba(255,255,255,0.1); border-radius: 16px; padding: 12px;">
+                    <div><strong>🏠 ${escapeHtml(pred.home_team)}</strong></div>
+                    <div style="font-size: 13px;">${homeStatsText}</div>
+                </div>
+                <div style="flex:1; text-align:center; background:rgba(255,255,255,0.1); border-radius: 16px; padding: 12px;">
+                    <div><strong>✈️ ${escapeHtml(pred.away_team)}</strong></div>
+                    <div style="font-size: 13px;">${awayStatsText}</div>
+                </div>
+            </div>
+            <div style="font-size: 18px; font-weight: bold;">🎯 ФОРА ПО МЯЧАМ</div>
+            <div class="handicap-line">${pred.handicap_line}</div>
+            <hr>
+            <div>
+                <span class="odds-badge">Победа ${pred.home_team}: ${pred.home_win_odds}</span>
+                <span class="odds-badge">Победа ${pred.away_team}: ${pred.away_win_odds}</span>
+            </div>
+        `;
+    }
+
+    function reset() {
+        currentTeams = [];
+        selectedHome = null;
+        selectedAway = null;
+        teamSelectionDiv.style.display = 'none';
+        resultDiv.style.display = 'none';
+        document.getElementById('url-input').value = '';
+        document.getElementById('merge-phases').checked = false;
+        statusDiv.style.display = 'none';
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    // Привязываем события
+    parseBtn.onclick = parseTable;
+    document.getElementById('calc-btn').onclick = calculateOdds;
+    document.getElementById('reset-btn').onclick = reset;
+</script>
 </body>
 </html>
