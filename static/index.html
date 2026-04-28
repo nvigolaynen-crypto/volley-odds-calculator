@@ -268,7 +268,7 @@
                         <option value="">Загрузка этапов...</option>
                     </select>
                     <select id="tvf-group">
-                        <option value="">Загрузка групп...</option>
+                        <option value="">Сначала выберите этап</option>
                     </select>
                 </div>
                 <button id="apply-tvf-filters" style="background: #2196F3;">Применить фильтры</button>
@@ -366,7 +366,7 @@
         setTimeout(() => { statusDiv.style.display = 'none'; }, 5000);
     }
 
-    async function loadTVFFilters(url) {
+    async function loadTVFStages(url) {
         try {
             const response = await fetch('/api/tvf/stages', {
                 method: 'POST',
@@ -380,24 +380,47 @@
                 data.stages.forEach(stage => {
                     stageSelect.innerHTML += `<option value="${stage.value}">${stage.label}</option>`;
                 });
+                // При изменении этапа загружаем группы
+                stageSelect.onchange = () => loadTVFGroups(url, stageSelect.value);
+                document.getElementById('tvf-filters').style.display = 'block';
+            } else {
+                document.getElementById('tvf-filters').style.display = 'none';
             }
+        } catch (error) {
+            console.error('Ошибка загрузки этапов TVF:', error);
+            document.getElementById('tvf-filters').style.display = 'none';
+        }
+    }
+
+    async function loadTVFGroups(url, stage) {
+        const groupSelect = document.getElementById('tvf-group');
+        groupSelect.innerHTML = '<option value="">Загрузка групп...</option>';
+        try {
+            const response = await fetch('/api/tvf/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, stage: stage })
+            });
+            const data = await response.json();
             if (data.groups && data.groups.length > 0) {
-                const groupSelect = document.getElementById('tvf-group');
                 groupSelect.innerHTML = '<option value="">-- Выберите группу --</option>';
                 data.groups.forEach(group => {
                     groupSelect.innerHTML += `<option value="${group.value}">${group.label}</option>`;
                 });
+            } else {
+                groupSelect.innerHTML = '<option value="">Нет групп</option>';
             }
-            document.getElementById('tvf-filters').style.display = 'block';
         } catch (error) {
-            console.error('Ошибка загрузки фильтров TVF:', error);
+            console.error('Ошибка загрузки групп TVF:', error);
+            groupSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
         }
     }
 
     document.getElementById('url-input').addEventListener('change', function() {
         const url = this.value.trim();
+        currentUrl = url;
         if (url.includes('tvf.org.tr')) {
-            loadTVFFilters(url);
+            loadTVFStages(url);
         } else {
             document.getElementById('tvf-filters').style.display = 'none';
         }
@@ -409,14 +432,13 @@
             showStatus('❌ Введите URL турнирной таблицы', true);
             return;
         }
-        currentUrl = url;
         const mergePhases = document.getElementById('merge-phases').checked;
         let stage = null, group = null;
         if (url.includes('tvf.org.tr')) {
             stage = document.getElementById('tvf-stage').value;
             group = document.getElementById('tvf-group').value;
-            if (!stage || !group) {
-                showStatus('❌ Для TVF выберите этап и группу', true);
+            if (!stage) {
+                showStatus('❌ Для TVF выберите этап', true);
                 return;
             }
         }
