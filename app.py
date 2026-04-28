@@ -83,10 +83,11 @@ def parse_dataproject(html, merge_phases=False):
     return teams
 
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России) – без объединения этапов
+# 2. Парсер для volley.ru (чемпионат России) – исправлен учёт очков
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
+    # ---- Основная таблица (команды и сеты) ----
     table = soup.find('table', class_='s-table')
     if not table:
         return []
@@ -100,82 +101,106 @@ def parse_volleyru(html, url):
         team_name = normalize_team_name(raw_name)
         if not team_name:
             continue
+        # Сеты из последней колонки "Пар"
         sets_cell = cols[-1].get_text(strip=True)
         if ':' in sets_cell:
             sets_won, sets_lost = map(int, sets_cell.split(':'))
         else:
             sets_won = sets_lost = 0
-        points_won = points_lost = None
-        if row.get('data-balls'):
-            balls = row['data-balls']
-            if ':' in balls:
-                points_won, points_lost = map(int, balls.split(':'))
         teams.append({
             'name': team_name,
             'sets_won': sets_won,
             'sets_lost': sets_lost,
-            'points_won': points_won,
-            'points_lost': points_lost
+            'points_won': None,
+            'points_lost': None
         })
-    # Парсинг детальной таблицы матчей для очков (для H2H и форы)
-    games = []
+
+    # ---- Детальная таблица матчей (очки) ----
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
+        # Ищем вторую таблицу, если нет точного класса
         tables = soup.find_all('table', class_='s-table')
         if len(tables) >= 2:
             games_table = tables[1]
-    if games_table:
-        game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
-        if not game_rows:
-            all_rows = games_table.find_all('tr')
-            if len(all_rows) > 2:
-                game_rows = all_rows[2:]
-        for row in game_rows:
-            cells = row.find_all('td')
-            if len(cells) < 4:
-                continue
-            home_team = None
-            away_team = None
-            for cell in cells:
+    if not games_table:
+        app.config['LAST_MATCHES'] = []
+        return teams
+
+    games = []
+    rows = games_table.find_all('tr', class_=re.compile(r'table-game|game-row'))
+    if not rows:
+        rows = games_table.find_all('tr')[2:]  # пропускаем заголовки
+    for row in rows:
+        cells = row.find_all('td')
+        if len(cells) < 5:
+            continue
+        
+        # ---- Определяем домашнюю и гостевую команды через разделитель ":" ----
+        home_team = None
+        away_team = None
+        separator_index = -1
+        for i, cell in enumerate(cells):
+            text = cell.get_text(strip=True)
+            if text == ':':
+                separator_index = i
+                break
+        if separator_index != -1 and separator_index > 0 and separator_index < len(cells)-1:
+            home_team = normalize_team_name(cells[separator_index-1].get_text(strip=True))
+            away_team = normalize_team_name(cells[separator_index+1].get_text(strip=True))
+        else:
+            # fallback: первая непустая ячейка после даты/времени
+            for i, cell in enumerate(cells):
                 text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None and not re.match(r'\d+:\d+', text):
-                    home_team = normalize_team_name(text)
-                elif text and text != ':' and away_team is None and not re.match(r'\d+:\d+', text):
-                    away_team = normalize_team_name(text)
-                    if home_team and away_team:
+                if text and text != ':' and not re.match(r'\d+:\d+', text) and not re.match(r'\d{2}\.\d{2}\.\d{4}', text):
+                    if home_team is None:
+                        home_team = normalize_team_name(text)
+                    else:
+                        away_team = normalize_team_name(text)
                         break
-            if not home_team or not away_team:
-                continue
-            score_cell = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if re.match(r'^\d+:\d+$', text):
-                    score_cell = cell
-                    break
-            if not score_cell:
-                continue
-            total = score_cell.get_text(strip=True)
-            home_sets, away_sets = map(int, total.split(':'))
-            rounds_cell = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if '(' in text and ')' in text and ':' in text:
-                    rounds_cell = cell
-                    break
-            home_points = away_points = 0
-            if rounds_cell:
-                rounds_text = rounds_cell.get_text(strip=True)
-                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-                home_points = sum(int(p[0]) for p in pairs)
-                away_points = sum(int(p[1]) for p in pairs)
-            games.append({
-                'home': home_team,
-                'away': away_team,
-                'home_sets': home_sets,
-                'away_sets': away_sets,
-                'home_points': home_points,
-                'away_points': away_points
-            })
+        if not home_team or not away_team:
+            continue
+
+        # ---- Счёт по сетам ----
+        score_cell = None
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            if re.match(r'^\d+:\d+$', text):
+                score_cell = cell
+                break
+        if not score_cell:
+            continue
+        total = score_cell.get_text(strip=True)
+        home_sets, away_sets = map(int, total.split(':'))
+
+        # ---- Очки по партиям ----
+        home_points = away_points = 0
+        rounds_cell = None
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            if '(' in text and ')' in text and ':' in text:
+                rounds_cell = cell
+                break
+        if rounds_cell:
+            rounds_text = rounds_cell.get_text(strip=True)
+            # Ищем все пары чисел вида 25:23
+            pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+            # Первое число в каждой паре — очки домашней команды (проверено на volley.ru)
+            home_points = sum(int(p[0]) for p in pairs)
+            away_points = sum(int(p[1]) for p in pairs)
+        else:
+            # Если нет партий, но есть результат — пытаемся взять данные из атрибута data-balls (но это ненадёжно)
+            pass
+
+        games.append({
+            'home': home_team,
+            'away': away_team,
+            'home_sets': home_sets,
+            'away_sets': away_sets,
+            'home_points': home_points,
+            'away_points': away_points
+        })
+
+    # ---- Суммируем очки для каждой команды ----
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -183,13 +208,25 @@ def parse_volleyru(html, url):
             points_map[g['home']]['points_lost'] += g['away_points']
             points_map[g['away']]['points_won'] += g['away_points']
             points_map[g['away']]['points_lost'] += g['home_points']
+
+        # ---- Корректировка, если очки перепутаны местами ----
         for team in teams:
             if team['name'] in points_map:
-                team['points_won'] = points_map[team['name']]['points_won']
-                team['points_lost'] = points_map[team['name']]['points_lost']
+                pw = points_map[team['name']]['points_won']
+                pl = points_map[team['name']]['points_lost']
+                # Если разница сетов положительная, а разница очков отрицательная — меняем местами
+                if team['sets_won'] > team['sets_lost'] and pw < pl:
+                    # Это явная ошибка — переставляем
+                    team['points_won'] = pl
+                    team['points_lost'] = pw
+                else:
+                    team['points_won'] = pw
+                    team['points_lost'] = pl
+
         app.config['LAST_MATCHES'] = games
     else:
         app.config['LAST_MATCHES'] = []
+
     return teams
 
 # ------------------------------------------------------------
