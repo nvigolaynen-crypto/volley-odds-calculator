@@ -10,12 +10,14 @@ from collections import defaultdict
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
+
 # ------------------------------------------------------------
 # Утилита для нормализации названий команд (удаляем город в скобках)
 # ------------------------------------------------------------
 def normalize_team_name(name):
     name = re.sub(r'\s*\([^)]*\)', '', name)
     return name.strip()
+
 
 # ------------------------------------------------------------
 # 1. Парсер для fpv-web.dataproject.com (португальская лига)
@@ -78,11 +80,12 @@ def parse_fpv_dataproject(html, merge_phases=False):
 
 
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России) – исправленный
+# 2. Парсер для volley.ru (чемпионат России) – ИСПРАВЛЕННЫЙ
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
 
+    # ----- 1. Парсим таблицу с командами -----
     table = soup.find('table', class_='s-table')
     if not table:
         return []
@@ -116,6 +119,7 @@ def parse_volleyru(html, url):
     if not teams:
         return teams
 
+    # ----- 2. Парсим матчи (ищем таблицу с классом 's-table s-table--round') -----
     games = []
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
@@ -132,6 +136,7 @@ def parse_volleyru(html, url):
             cells = row.find_all('td')
             if len(cells) < 4:
                 continue
+            # Извлекаем названия команд: первая и третья значимые ячейки
             home_team = None
             away_team = None
             for cell in cells:
@@ -144,6 +149,7 @@ def parse_volleyru(html, url):
                         break
             if not home_team or not away_team:
                 continue
+            # Ищем ячейку с общим счётом (формат "3:1" или "0:3")
             score_cell = None
             for cell in cells:
                 text = cell.get_text(strip=True)
@@ -154,6 +160,7 @@ def parse_volleyru(html, url):
                 continue
             total = score_cell.get_text(strip=True)
             home_sets, away_sets = map(int, total.split(':'))
+            # Ищем ячейку с очками по партиям (формат "(25:20, 18:25, ...)")
             rounds_cell = None
             for cell in cells:
                 text = cell.get_text(strip=True)
@@ -175,6 +182,7 @@ def parse_volleyru(html, url):
                 'away_points': away_points
             })
 
+    # ----- 3. Если нашли игры – накапливаем очки для команд и сохраняем для H2H -----
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -268,78 +276,11 @@ def parse_legavolley_femminile(html):
 
 
 # ------------------------------------------------------------
-# 5. Парсер для tvf.org.tr (турецкая женская лига) – с поддержкой этапов и групп
+# 5. Парсер для tvf.org.tr (турецкая женская лига) – временная версия (без групп)
 # ------------------------------------------------------------
-def parse_tvf_stages_and_groups(html):
-    """Извлекает доступные этапы (тур) и для каждого этапа список групп."""
-    soup = BeautifulSoup(html, 'html.parser')
-    stage_select = soup.find('select', {'id': 'filterSelectMain'})
-    stages = []
-    if stage_select:
-        for option in stage_select.find_all('option'):
-            val = option.get('value')
-            text = option.get_text(strip=True)
-            if val:
-                stages.append({'value': val, 'label': text})
-    return stages
-
-
 def parse_tvf(html, url=None, stage=None, group=None):
-    """
-    Парсер TVF, принимает выбранный этап и группу.
-    Если stage и group заданы, формирует новый URL с параметрами tur и grup.
-    """
-    if stage and url:
-        base_url = url.split('?')[0]
-        new_url = f"{base_url}?tur={stage}"
-        if group:
-            new_url += f"&grup={group}"
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            resp = requests.get(new_url, headers=headers, timeout=30)
-            if resp.status_code == 200:
-                html = resp.text
-        except:
-            pass
-
     soup = BeautifulSoup(html, 'html.parser')
-
-    # Способ 1: wire:snapshot (основной)
-    wire_div = soup.find('div', {'wire:snapshot': True})
-    if wire_div:
-        snapshot_attr = wire_div.get('wire:snapshot')
-        if snapshot_attr:
-            try:
-                snapshot_data = json.loads(snapshot_attr)
-                league_points = snapshot_data.get('data', {}).get('leaguePoints', [])
-                if league_points:
-                    puantablosu = league_points[0].get('puantablosu', [])
-                    teams = []
-                    for team_data in puantablosu:
-                        if isinstance(team_data, list) and team_data:
-                            team = team_data[0]
-                        else:
-                            team = team_data
-                        name = team.get('TAKIMADI', '')
-                        if not name:
-                            continue
-                        sets_won = int(team.get('A', 0)) if team.get('A') else 0
-                        sets_lost = int(team.get('V', 0)) if team.get('V') else 0
-                        points_won = int(team.get('ASP', 0)) if team.get('ASP') else None
-                        points_lost = int(team.get('VSP', 0)) if team.get('VSP') else None
-                        teams.append({
-                            'name': name,
-                            'sets_won': sets_won,
-                            'sets_lost': sets_lost,
-                            'points_won': points_won,
-                            'points_lost': points_lost
-                        })
-                    if teams:
-                        return teams
-            except Exception as e:
-                print(f"Ошибка парсинга wire:snapshot TVF: {e}")
-
-    # Способ 2: обычная таблица
+    # Поскольку с группами проблемы, пока парсим только то, что есть на странице (без дополнительных параметров)
     table = soup.find('table', class_=re.compile(r'table|standings|puan|ranking'))
     if not table:
         table = soup.find('table')
@@ -389,7 +330,6 @@ def parse_tvf(html, url=None, stage=None, group=None):
             })
         if teams:
             return teams
-
     return []
 
 
@@ -489,8 +429,6 @@ def parse():
     data = request.json
     url = data.get('url')
     merge_phases = data.get('merge_phases', False)
-    stage = data.get('stage', None)
-    group = data.get('group', None)
 
     if not url:
         return jsonify({'error': 'URL не указан'}), 400
@@ -501,104 +439,21 @@ def parse():
         response.raise_for_status()
         html = response.text
 
-        if 'tvf.org.tr' in url:
-            teams = parse_tvf(html, url, stage, group)
+        parser = detect_parser(html, url)
+        if not parser:
+            return jsonify({'error': 'Сайт не поддерживается'}), 400
+
+        if parser == parse_fpv_dataproject:
+            teams = parser(html, merge_phases)
+        elif parser == parse_volleyru:
+            teams = parser(html, url)
         else:
-            parser = detect_parser(html, url)
-            if not parser:
-                return jsonify({'error': 'Сайт не поддерживается'}), 400
-            if parser == parse_fpv_dataproject:
-                teams = parser(html, merge_phases)
-            elif parser == parse_volleyru:
-                teams = parser(html, url)
-            else:
-                teams = parser(html)
+            teams = parser(html)
 
         if not teams:
             return jsonify({'error': 'Не найдены команды в таблице'}), 404
 
         return jsonify({'success': True, 'teams': teams, 'count': len(teams)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/tvf/stages', methods=['POST'])
-def tvf_stages():
-    """Получить доступные этапы для TVF"""
-    data = request.json
-    url = data.get('url')
-    if not url:
-        return jsonify({'error': 'URL не указан'}), 400
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        html = response.text
-        stages = parse_tvf_stages_and_groups(html)
-        return jsonify({'stages': stages})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/tvf/groups', methods=['POST'])
-def tvf_groups():
-    """Получить группы для выбранного этапа TVF"""
-    data = request.json
-    url = data.get('url')
-    stage = data.get('stage')
-    if not url or not stage:
-        return jsonify({'error': 'Не указан URL или этап'}), 400
-    try:
-        base_url = url.split('?')[0]
-        new_url = f"{base_url}?tur={stage}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(new_url, headers=headers, timeout=30)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        groups = []
-        # Ищем select с id="filterSelect1"
-        group_select = soup.find('select', {'id': 'filterSelect1'})
-        if group_select:
-            for option in group_select.find_all('option'):
-                val = option.get('value')
-                text = option.get_text(strip=True)
-                if val and text and text not in ['Grup Seçiniz', 'Seçiniz', '-- Seçiniz --']:
-                    groups.append({'value': val, 'label': text})
-        
-        # Если не нашли, ищем любой select с опциями-буквами
-        if not groups:
-            all_selects = soup.find_all('select')
-            for sel in all_selects:
-                options = sel.find_all('option')
-                for opt in options:
-                    text = opt.get_text(strip=True)
-                    if re.match(r'^[A-ZÇĞİÖŞÜ]{1,2}$', text):
-                        for opt2 in options:
-                            val2 = opt2.get('value')
-                            text2 = opt2.get_text(strip=True)
-                            if val2 and text2 and text2 not in ['Grup Seçiniz', 'Seçiniz', '-- Seçiniz --']:
-                                groups.append({'value': val2, 'label': text2})
-                        break
-                if groups:
-                    break
-        
-        # Если всё ещё нет, ищем div с классом, содержащим "grup", и ссылки
-        if not groups:
-            group_containers = soup.find_all('div', class_=re.compile(r'grup|group', re.I))
-            for container in group_containers:
-                links = container.find_all('a')
-                for link in links:
-                    href = link.get('href')
-                    text = link.get_text(strip=True)
-                    if href and ('grup' in href or 'group' in href) and text:
-                        match = re.search(r'[?&]grup=([^&]+)', href)
-                        if match:
-                            groups.append({'value': match.group(1), 'label': text})
-                if groups:
-                    break
-        
-        return jsonify({'groups': groups})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
