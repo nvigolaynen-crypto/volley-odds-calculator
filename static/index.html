@@ -315,7 +315,7 @@
             </div>
             <div class="checkbox-wrapper">
                 <input type="checkbox" id="neutral-ground">
-                <label for="neutral-ground" style="margin:0; width:auto;">🏟️ Нейтральная площадка</label>
+                <label for="neutral-ground" style="margin:0; width:auto;">🏟️ Нейтральная площадка (отключить фактор дома)</label>
             </div>
             <button id="calc-btn" style="margin-top: 15px;">🎯 Рассчитать прогноз</button>
         </div>
@@ -380,6 +380,7 @@
                 data.stages.forEach(stage => {
                     stageSelect.innerHTML += `<option value="${stage.value}">${stage.label}</option>`;
                 });
+                // При изменении этапа загружаем группы
                 stageSelect.onchange = () => loadTVFGroups(url, stageSelect.value);
                 document.getElementById('tvf-filters').style.display = 'block';
             } else {
@@ -435,13 +436,10 @@
         let stage = null, group = null;
         if (url.includes('tvf.org.tr')) {
             stage = document.getElementById('tvf-stage').value;
+            group = document.getElementById('tvf-group').value;
             if (!stage) {
                 showStatus('❌ Для TVF выберите этап', true);
                 return;
-            }
-            group = document.getElementById('tvf-group').value;
-            if (!group || group === '') {
-                group = null;
             }
         }
 
@@ -475,11 +473,12 @@
     }
 
     function formatTeamStats(team) {
+        let setsText = `Сеты: ${team.sets_won}:${team.sets_lost}`;
         let pointsText = '';
         if (team.points_won && team.points_lost) {
             pointsText = ` | Мячи: ${team.points_won}:${team.points_lost}`;
         }
-        return `Сеты: ${team.sets_won}:${team.sets_lost}${pointsText}`;
+        return setsText + pointsText;
     }
 
     function renderTeamLists() {
