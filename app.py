@@ -10,14 +10,12 @@ from collections import defaultdict
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-
 # ------------------------------------------------------------
-# Утилита для нормализации названий команд (удаляем город в скобках)
+# Нормализация названий команд (убираем город в скобках)
 # ------------------------------------------------------------
 def normalize_team_name(name):
     name = re.sub(r'\s*\([^)]*\)', '', name)
     return name.strip()
-
 
 # ------------------------------------------------------------
 # 1. Парсер для fpv-web.dataproject.com (португальская лига)
@@ -78,17 +76,17 @@ def parse_fpv_dataproject(html, merge_phases=False):
     teams.sort(key=lambda x: x['sets_won'] / max(x['sets_lost'], 1), reverse=True)
     return teams
 
-
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России) – ИСПРАВЛЕННЫЙ
+# 2. Парсер для volley.ru (чемпионат России) – парсит все матчи и суммирует очки
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
 
-    # ----- 1. Парсим таблицу с командами -----
+    # Основная таблица с командами
     table = soup.find('table', class_='s-table')
     if not table:
         return []
+
     teams = []
     rows = table.find_all('tr')
     for row in rows[1:]:
@@ -99,16 +97,20 @@ def parse_volleyru(html, url):
         team_name = normalize_team_name(raw_name)
         if not team_name:
             continue
-        sets_cell = cols[-1].get_text(strip=True)
+
+        sets_cell = cols[-1].get_text(strip=True)  # столбец "Пар"
         if ':' in sets_cell:
             sets_won, sets_lost = map(int, sets_cell.split(':'))
         else:
             sets_won = sets_lost = 0
+
         points_won = points_lost = None
+        # пробуем взять очки из атрибута data-balls (если есть)
         if row.get('data-balls'):
             balls = row['data-balls']
             if ':' in balls:
                 points_won, points_lost = map(int, balls.split(':'))
+
         teams.append({
             'name': team_name,
             'sets_won': sets_won,
@@ -116,72 +118,77 @@ def parse_volleyru(html, url):
             'points_won': points_won,
             'points_lost': points_lost
         })
-    if not teams:
-        return teams
 
-    # ----- 2. Парсим матчи (таблица результатов) -----
+    # Парсинг детальной таблицы матчей для сбора очков по партиям
     games = []
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
-        return teams
+        tables = soup.find_all('table', class_='s-table')
+        if len(tables) >= 2:
+            games_table = tables[1]
 
-    game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
-    for row in game_rows:
-        cells = row.find_all('td')
-        if len(cells) < 4:
-            continue
+    if games_table:
+        game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
+        if not game_rows:
+            all_rows = games_table.find_all('tr')
+            if len(all_rows) > 2:
+                game_rows = all_rows[2:]
 
-        # Извлекаем названия команд: первая и третья значимые ячейки, пропуская ":", "МЦ" и счёт
-        home_team = None
-        away_team = None
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            # Пропускаем пустые, двоеточие, ссылки на МЦ, скобки и счёт вида "3:1"
-            if text and text != ':' and 'МЦ' not in text and '(' not in text and not re.match(r'^\d+:\d+$', text):
-                if home_team is None:
+        for row in game_rows:
+            cells = row.find_all('td')
+            if len(cells) < 4:
+                continue
+
+            home_team = None
+            away_team = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if text and text != ':' and home_team is None and not re.match(r'\d+:\d+', text):
                     home_team = normalize_team_name(text)
-                elif away_team is None:
+                elif text and text != ':' and away_team is None and not re.match(r'\d+:\d+', text):
                     away_team = normalize_team_name(text)
+                    if home_team and away_team:
+                        break
+
+            if not home_team or not away_team:
+                continue
+
+            # счёт по сетам
+            score_cell = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if re.match(r'^\d+:\d+$', text):
+                    score_cell = cell
                     break
-        if not home_team or not away_team:
-            continue
+            if not score_cell:
+                continue
+            total = score_cell.get_text(strip=True)
+            home_sets, away_sets = map(int, total.split(':'))
 
-        # Ищем ячейку с общим счётом (строго "3:1" или "0:3")
-        score_cell = None
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            if re.match(r'^\d+:\d+$', text):
-                score_cell = cell
-                break
-        if not score_cell:
-            continue
-        total = score_cell.get_text(strip=True)
-        home_sets, away_sets = map(int, total.split(':'))
+            # очки по партиям
+            rounds_cell = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if '(' in text and ')' in text and ':' in text:
+                    rounds_cell = cell
+                    break
+            home_points = away_points = 0
+            if rounds_cell:
+                rounds_text = rounds_cell.get_text(strip=True)
+                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+                home_points = sum(int(p[0]) for p in pairs)
+                away_points = sum(int(p[1]) for p in pairs)
 
-        # Ищем ячейку с очками по партиям (содержит скобки и двоеточия)
-        rounds_cell = None
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            if '(' in text and ')' in text and ':' in text:
-                rounds_cell = cell
-                break
-        home_points = away_points = 0
-        if rounds_cell:
-            rounds_text = rounds_cell.get_text(strip=True)
-            pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-            home_points = sum(int(p[0]) for p in pairs)
-            away_points = sum(int(p[1]) for p in pairs)
+            games.append({
+                'home': home_team,
+                'away': away_team,
+                'home_sets': home_sets,
+                'away_sets': away_sets,
+                'home_points': home_points,
+                'away_points': away_points
+            })
 
-        games.append({
-            'home': home_team,
-            'away': away_team,
-            'home_sets': home_sets,
-            'away_sets': away_sets,
-            'home_points': home_points,
-            'away_points': away_points
-        })
-
-    # ----- 3. Накопление очков по командам и сохранение матчей для H2H -----
+    # Суммируем очки для каждой команды из детальных матчей
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -189,16 +196,18 @@ def parse_volleyru(html, url):
             points_map[g['home']]['points_lost'] += g['away_points']
             points_map[g['away']]['points_won'] += g['away_points']
             points_map[g['away']]['points_lost'] += g['home_points']
+
         for team in teams:
             if team['name'] in points_map:
                 team['points_won'] = points_map[team['name']]['points_won']
                 team['points_lost'] = points_map[team['name']]['points_lost']
+
+        # Сохраняем список матчей для H2H
         app.config['LAST_MATCHES'] = games
     else:
         app.config['LAST_MATCHES'] = []
 
     return teams
-
 
 # ------------------------------------------------------------
 # 3. Парсер для legavolley.it (итальянская мужская лига)
@@ -234,7 +243,6 @@ def parse_legavolley(html):
             'points_lost': points_lost
         })
     return teams
-
 
 # ------------------------------------------------------------
 # 4. Парсер для legavolleyfemminile.it (итальянская женская лига)
@@ -273,13 +281,87 @@ def parse_legavolley_femminile(html):
         })
     return teams
 
-
 # ------------------------------------------------------------
-# 5. Парсер для tvf.org.tr (турецкая женская лига) – упрощённый (без групп)
+# 5. Парсер для tvf.org.tr (турецкая женская лига) – с выбором этапа и группы
 # ------------------------------------------------------------
-def parse_tvf(html, url=None, stage=None, group=None):
+def parse_tvf_stages_and_groups(html):
+    """Извлекает доступные этапы (tur) и для каждого этапа список групп."""
     soup = BeautifulSoup(html, 'html.parser')
-    # Пробуем найти таблицу с классами
+    stage_select = soup.find('select', {'id': 'filterSelectMain'})
+    stages = []
+    groups_by_stage = {}
+    if stage_select:
+        for option in stage_select.find_all('option'):
+            val = option.get('value')
+            text = option.get_text(strip=True)
+            if val:
+                stages.append({'value': val, 'label': text})
+                groups_by_stage[val] = []
+    group_select = soup.find('select', {'id': 'filterSelect1'})
+    if group_select:
+        for option in group_select.find_all('option'):
+            val = option.get('value')
+            text = option.get_text(strip=True)
+            if val and text:
+                for stage in stages:
+                    groups_by_stage[stage['value']].append({'value': val, 'label': text})
+    return stages, groups_by_stage
+
+def parse_tvf(html, url=None, stage=None, group=None):
+    """
+    Парсер TVF. Если stage и group заданы, формирует URL с параметрами tur и grup.
+    """
+    if stage and url:
+        base_url = url.split('?')[0]
+        new_url = f"{base_url}?tur={stage}"
+        if group:
+            new_url += f"&grup={group}"
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            resp = requests.get(new_url, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                html = resp.text
+        except:
+            pass
+
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Способ 1: wire:snapshot (основной для TVF)
+    wire_div = soup.find('div', {'wire:snapshot': True})
+    if wire_div:
+        snapshot_attr = wire_div.get('wire:snapshot')
+        if snapshot_attr:
+            try:
+                snapshot_data = json.loads(snapshot_attr)
+                league_points = snapshot_data.get('data', {}).get('leaguePoints', [])
+                if league_points:
+                    puantablosu = league_points[0].get('puantablosu', [])
+                    teams = []
+                    for team_data in puantablosu:
+                        if isinstance(team_data, list) and team_data:
+                            team = team_data[0]
+                        else:
+                            team = team_data
+                        name = team.get('TAKIMADI', '')
+                        if not name:
+                            continue
+                        sets_won = int(team.get('A', 0)) if team.get('A') else 0
+                        sets_lost = int(team.get('V', 0)) if team.get('V') else 0
+                        points_won = int(team.get('ASP', 0)) if team.get('ASP') else None
+                        points_lost = int(team.get('VSP', 0)) if team.get('VSP') else None
+                        teams.append({
+                            'name': name,
+                            'sets_won': sets_won,
+                            'sets_lost': sets_lost,
+                            'points_won': points_won,
+                            'points_lost': points_lost
+                        })
+                    if teams:
+                        return teams
+            except Exception as e:
+                print(f"Ошибка парсинга wire:snapshot TVF: {e}")
+
+    # Способ 2: обычная таблица
     table = soup.find('table', class_=re.compile(r'table|standings|puan|ranking'))
     if not table:
         table = soup.find('table')
@@ -329,8 +411,8 @@ def parse_tvf(html, url=None, stage=None, group=None):
             })
         if teams:
             return teams
-    return []
 
+    return []
 
 # ------------------------------------------------------------
 # 6. Парсер для tauronliga.pl (польская женская лига)
@@ -364,7 +446,6 @@ def parse_tauronliga(html):
         })
     return teams
 
-
 # ------------------------------------------------------------
 # Определение парсера по URL
 # ------------------------------------------------------------
@@ -383,13 +464,11 @@ def detect_parser(html, url):
         return parse_tauronliga
     return None
 
-
 # ------------------------------------------------------------
 # Функции для H2H (личные встречи)
 # ------------------------------------------------------------
 def get_h2h_matches(team1, team2, matches):
     return [m for m in matches if (m['home'] == team1 and m['away'] == team2) or (m['home'] == team2 and m['away'] == team1)]
-
 
 def calculate_h2h_factor(team1, team2, matches):
     h2h = get_h2h_matches(team1, team2, matches)
@@ -414,7 +493,6 @@ def calculate_h2h_factor(team1, team2, matches):
     points_ratio = (total_points_1 / max(total_points_2, 1)) if total_points_2 > 0 else total_points_1 + 1
     return max(0.5, min(2.0, (sets_ratio * points_ratio) ** 0.5))
 
-
 # ------------------------------------------------------------
 # API
 # ------------------------------------------------------------
@@ -422,12 +500,13 @@ def calculate_h2h_factor(team1, team2, matches):
 def index():
     return send_from_directory('static', 'index.html')
 
-
 @app.route('/api/parse', methods=['POST'])
 def parse():
     data = request.json
     url = data.get('url')
     merge_phases = data.get('merge_phases', False)
+    stage = data.get('stage', None)
+    group = data.get('group', None)
 
     if not url:
         return jsonify({'error': 'URL не указан'}), 400
@@ -438,16 +517,18 @@ def parse():
         response.raise_for_status()
         html = response.text
 
-        parser = detect_parser(html, url)
-        if not parser:
-            return jsonify({'error': 'Сайт не поддерживается'}), 400
-
-        if parser == parse_fpv_dataproject:
-            teams = parser(html, merge_phases)
-        elif parser == parse_volleyru:
-            teams = parser(html, url)
+        if 'tvf.org.tr' in url:
+            teams = parse_tvf(html, url, stage, group)
         else:
-            teams = parser(html)
+            parser = detect_parser(html, url)
+            if not parser:
+                return jsonify({'error': 'Сайт не поддерживается'}), 400
+            if parser == parse_fpv_dataproject:
+                teams = parser(html, merge_phases)
+            elif parser == parse_volleyru:
+                teams = parser(html, url)
+            else:
+                teams = parser(html)
 
         if not teams:
             return jsonify({'error': 'Не найдены команды в таблице'}), 404
@@ -456,6 +537,47 @@ def parse():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/tvf/stages', methods=['POST'])
+def tvf_stages():
+    data = request.json
+    url = data.get('url')
+    if not url:
+        return jsonify({'error': 'URL не указан'}), 400
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        html = response.text
+        stages, _ = parse_tvf_stages_and_groups(html)
+        return jsonify({'stages': stages})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tvf/groups', methods=['POST'])
+def tvf_groups():
+    data = request.json
+    url = data.get('url')
+    stage = data.get('stage')
+    if not url or not stage:
+        return jsonify({'error': 'Не указан URL или этап'}), 400
+    try:
+        base_url = url.split('?')[0]
+        new_url = f"{base_url}?tur={stage}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(new_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        group_select = soup.find('select', {'id': 'filterSelect1'})
+        groups = []
+        if group_select:
+            for option in group_select.find_all('option'):
+                val = option.get('value')
+                text = option.get_text(strip=True)
+                if val:
+                    groups.append({'value': val, 'label': text})
+        return jsonify({'groups': groups})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calculate', methods=['POST'])
 def calculate():
@@ -546,7 +668,6 @@ def calculate():
             'fair_odds': fair_odds
         }
     })
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
