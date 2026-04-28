@@ -9,34 +9,27 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
 def parse_dataproject_table(soup):
-    """Парсер для DataProject с автоопределением колонок"""
-    # Ищем таблицу с классом grid или grid_lines
+    # Найти таблицу
     table = soup.find('table', class_=re.compile(r'grid'))
     if not table:
-        # Попробуем найти таблицу по id
         table = soup.find('table', id=re.compile(r'grd', re.I))
     if not table:
         return None
-    
-    # Получаем все строки
+
     rows = table.find_all('tr')
     if len(rows) < 2:
         return None
-    
-    # Пробуем найти строку заголовков, чтобы определить индексы
+
+    # Попытаемся определить заголовки
     header_row = None
     for row in rows:
         ths = row.find_all('th')
         if ths:
             header_row = ths
             break
-    
-    # Если есть заголовки, ищем по тексту
-    set_won_idx = None
-    set_lost_idx = None
-    points_won_idx = None
-    points_lost_idx = None
-    
+
+    # Определим индексы по тексту заголовков
+    set_won_idx = set_lost_idx = points_won_idx = points_lost_idx = None
     if header_row:
         for i, th in enumerate(header_row):
             text = th.get_text().lower()
@@ -49,15 +42,46 @@ def parse_dataproject_table(soup):
                     points_won_idx = i
                 elif 'against' in text or 'subiti' in text or 'пропущ' in text:
                     points_lost_idx = i
-    
-    # Если не нашли по заголовкам, будем определять по значениям
+
+    # Если заголовки не помогли, проанализируем первые несколько строк данных
+    # чтобы определить, где сеты (маленькие числа) и где очки (большие)
+    sample_row = None
+    for row in rows[1:]:
+        cols = row.find_all('td')
+        if len(cols) >= 5:
+            sample_row = cols
+            break
+
+    if sample_row and (set_won_idx is None or set_lost_idx is None):
+        # Соберём все числа из первой строки и определим диапазоны
+        numbers = []
+        for i, col in enumerate(sample_row):
+            text = col.get_text().strip()
+            nums = re.findall(r'\b(\d+)\b', text)
+            for n in nums:
+                val = int(n)
+                if val < 5000:
+                    numbers.append((i, val))
+        # Сортируем по значению
+        numbers.sort(key=lambda x: x[1])
+        # Самые маленькие (первые два) – вероятно сеты, самые большие (последние два) – очки
+        if len(numbers) >= 2:
+            # Проверим, что они действительно маленькие (0-150)
+            small_indices = [idx for idx, val in numbers if val <= 150]
+            if len(small_indices) >= 2:
+                set_won_idx, set_lost_idx = small_indices[0], small_indices[1]
+        if len(numbers) >= 4:
+            large_indices = [idx for idx, val in numbers if val >= 500]
+            if len(large_indices) >= 2:
+                points_won_idx, points_lost_idx = large_indices[0], large_indices[1]
+
     teams = []
     for row in rows[1:]:
         cols = row.find_all('td')
         if len(cols) < 5:
             continue
-        
-        # Название команды – обычно первая или вторая колонка
+
+        # Название команды – обычно первая или вторая колонка с текстом
         team_name = None
         for i in range(min(3, len(cols))):
             text = cols[i].get_text().strip()
@@ -66,68 +90,40 @@ def parse_dataproject_table(soup):
                 break
         if not team_name:
             continue
-        
-        # Собираем все числа из ячейки (учитываем, что в ячейке может быть несколько чисел)
-        numbers = []
-        for col in cols:
-            text = col.get_text().strip()
-            # Ищем числа в тексте
-            nums = re.findall(r'\b(\d+)\b', text)
-            for n in nums:
-                val = int(n)
-                # Пропускаем слишком большие (больше 5000) - это могут быть ID
-                if val < 5000:
-                    numbers.append(val)
-        
-        # Если есть индексы из заголовков – используем их
-        if set_won_idx is not None and set_won_idx < len(cols):
-            set_won = int(cols[set_won_idx].get_text().strip()) if cols[set_won_idx].get_text().strip().isdigit() else 0
-        else:
-            set_won = 0
-        if set_lost_idx is not None and set_lost_idx < len(cols):
-            set_lost = int(cols[set_lost_idx].get_text().strip()) if cols[set_lost_idx].get_text().strip().isdigit() else 0
-        else:
-            set_lost = 0
-        
-        if points_won_idx is not None and points_won_idx < len(cols):
-            points_won = int(cols[points_won_idx].get_text().strip()) if cols[points_won_idx].get_text().strip().isdigit() else None
-        else:
-            points_won = None
-        if points_lost_idx is not None and points_lost_idx < len(cols):
-            points_lost = int(cols[points_lost_idx].get_text().strip()) if cols[points_lost_idx].get_text().strip().isdigit() else None
-        else:
-            points_lost = None
-        
-        # Если индексы не определились – пытаемся угадать по значениям
-        if set_won == 0 and set_lost == 0 and len(numbers) >= 2:
-            # Сортируем числа
-            numbers_sorted = sorted(numbers)
-            # Самые большие числа – это очки (обычно > 500)
-            large = [n for n in numbers_sorted if n > 500]
-            # Остальные – сеты
-            small = [n for n in numbers_sorted if n <= 150]
-            
-            if len(small) >= 2:
-                set_won = small[-2] if len(small) >= 2 else 0
-                set_lost = small[-1] if len(small) >= 2 else 0
-            elif len(small) == 1:
-                set_won = small[0]
-            
-            if len(large) >= 2:
-                points_won = large[-2]
-                points_lost = large[-1]
-        
-        # Если у нас есть и сеты и очки – добавляем
-        if team_name:
-            teams.append({
-                'name': team_name,
-                'sets_won': set_won,
-                'sets_lost': set_lost,
-                'points_won': points_won,
-                'points_lost': points_lost
-            })
-    
-    return teams if teams else None
+
+        # Функция безопасного извлечения числа из колонки
+        def get_int(col):
+            try:
+                return int(col.get_text().strip())
+            except:
+                return 0
+
+        sets_won = get_int(cols[set_won_idx]) if set_won_idx is not None and set_won_idx < len(cols) else 0
+        sets_lost = get_int(cols[set_lost_idx]) if set_lost_idx is not None and set_lost_idx < len(cols) else 0
+        points_won = get_int(cols[points_won_idx]) if points_won_idx is not None and points_won_idx < len(cols) else None
+        points_lost = get_int(cols[points_lost_idx]) if points_lost_idx is not None and points_lost_idx < len(cols) else None
+
+        # Если сеты не найдены, попробуем угадать по наличию двоеточия в ячейках
+        if sets_won == 0 and sets_lost == 0:
+            for col in cols:
+                text = col.get_text().strip()
+                if ':' in text:
+                    parts = text.split(':')
+                    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                        s1, s2 = int(parts[0]), int(parts[1])
+                        if s1 <= 150 and s2 <= 150:
+                            sets_won, sets_lost = s1, s2
+                            break
+
+        teams.append({
+            'name': team_name,
+            'sets_won': sets_won,
+            'sets_lost': sets_lost,
+            'points_won': points_won if points_won and points_won > 0 else None,
+            'points_lost': points_lost if points_lost and points_lost > 0 else None
+        })
+
+    return teams
 
 @app.route('/')
 def index():
@@ -137,7 +133,6 @@ def index():
 def parse():
     data = request.json
     url = data.get('url')
-    
     if not url:
         return jsonify({'error': 'URL не указан'}), 400
     
@@ -146,12 +141,9 @@ def parse():
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        
         teams = parse_dataproject_table(soup)
-        
         if not teams:
             return jsonify({'error': 'Не найдены команды в таблице'}), 404
-        
         return jsonify({'success': True, 'teams': teams, 'count': len(teams)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -165,7 +157,6 @@ def calculate():
     
     home = next((t for t in teams if t['name'] == home_name), None)
     away = next((t for t in teams if t['name'] == away_name), None)
-    
     if not home or not away:
         return jsonify({'error': 'Команды не найдены'}), 400
     
@@ -177,7 +168,6 @@ def calculate():
         home_strength = home['sets_won'] / max(home['sets_lost'], 1)
         away_strength = away['sets_won'] / max(away['sets_lost'], 1)
     
-    # Коэффициенты на победу
     expected = home_strength / max(away_strength, 0.01)
     win_prob = expected / (1 + expected)
     win_prob = max(0.1, min(0.9, win_prob))
@@ -185,20 +175,15 @@ def calculate():
     home_odds = round(1 / win_prob, 2)
     away_odds = round(1 / (1 - win_prob), 2)
     
-    # Фора по мячам (только на основе очков)
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
         home_pts_strength = home['points_won'] / max(home['points_lost'], 1)
         away_pts_strength = away['points_won'] / max(away['points_lost'], 1)
         pts_ratio = home_pts_strength / max(away_pts_strength, 0.01)
-        
-        # Коэффициент перевода в разницу очков
         expected_diff = (pts_ratio - 1) * 22
         expected_diff = max(-18, min(18, expected_diff))
         handicap_value = round(expected_diff / 0.5) * 0.5
-        
         is_home_favorite = handicap_value < 0
         abs_handicap = abs(handicap_value)
-        
         if abs_handicap < 0.5:
             handicap_line = "Ожидается равный матч"
         elif is_home_favorite:
@@ -215,8 +200,6 @@ def calculate():
             'away_team': away['name'],
             'home_sets': f"{home['sets_won']}:{home['sets_lost']}",
             'away_sets': f"{away['sets_won']}:{away['sets_lost']}",
-            'home_points': f"{home['points_won']}:{home['points_lost']}" if home['points_won'] else None,
-            'away_points': f"{away['points_won']}:{away['points_lost']}" if away['points_won'] else None,
             'home_win_odds': home_odds,
             'away_win_odds': away_odds,
             'handicap_line': handicap_line
