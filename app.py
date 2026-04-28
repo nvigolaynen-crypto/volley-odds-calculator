@@ -10,13 +10,20 @@ from collections import defaultdict
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-# Глобальный кэш для матчей (для H2H)
-app.config['LAST_MATCHES'] = []
+# ------------------------------------------------------------
+# Утилита для нормализации названий команд (удаляем город в скобках)
+# ------------------------------------------------------------
+def normalize_team_name(name):
+    # Удаляем текст в скобках (город)
+    name = re.sub(r'\s*\([^)]*\)', '', name)
+    # Удаляем лишние пробелы
+    name = name.strip()
+    return name
 
 # ------------------------------------------------------------
 # 1. Парсер для fpv-web.dataproject.com (португальская лига)
 # ------------------------------------------------------------
-def parse_fpv_dataproject_table(html, merge_phases=False):
+def parse_fpv_dataproject(html, merge_phases=False):
     soup = BeautifulSoup(html, 'html.parser')
     if not merge_phases:
         first_tab = soup.find('div', id='Content_Main_446')
@@ -27,21 +34,26 @@ def parse_fpv_dataproject_table(html, merge_phases=False):
         container = first_tab
     else:
         container = soup
+
     rows = container.find_all('tr', class_=lambda c: c and ('RG_Standing_Main_AltBackColor' in c))
     teams_dict = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
+
     for row in rows:
         team_name_span = row.find('span', id='TeamName')
         if not team_name_span:
             continue
         team_name = team_name_span.get_text(strip=True)
+
         sets_won_span = row.find('span', id='SetsWon')
         sets_lost_span = row.find('span', id='SetsLost')
         sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
         sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
+
         points_won_span = row.find('span', id='PuntiFatti')
         points_lost_span = row.find('span', id='PuntiSubiti')
         points_won = int(points_won_span.get_text(strip=True)) if points_won_span else 0
         points_lost = int(points_lost_span.get_text(strip=True)) if points_lost_span else 0
+
         if merge_phases:
             teams_dict[team_name]['sets_won'] += sets_won
             teams_dict[team_name]['sets_lost'] += sets_lost
@@ -54,6 +66,7 @@ def parse_fpv_dataproject_table(html, merge_phases=False):
                 'points_won': points_won,
                 'points_lost': points_lost
             }
+
     teams = []
     for name, stats in teams_dict.items():
         teams.append({
@@ -67,23 +80,23 @@ def parse_fpv_dataproject_table(html, merge_phases=False):
     return teams
 
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России) с чтением матчей с той же страницы
+# 2. Парсер для volley.ru (чемпионат России) – улучшенный
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
     
-    # ----- 1. Таблица команд -----
+    # ----- 1. Парсим таблицу с командами -----
     table = soup.find('table', class_='s-table')
     if not table:
         return []
-
     teams = []
     rows = table.find_all('tr')
     for row in rows[1:]:
         cols = row.find_all('td')
         if len(cols) < 3:
             continue
-        team_name = cols[0].get_text(strip=True).split(' (')[0]
+        raw_name = cols[0].get_text(strip=True)
+        team_name = normalize_team_name(raw_name)
         if not team_name:
             continue
         sets_cell = cols[-1].get_text(strip=True)
@@ -91,6 +104,7 @@ def parse_volleyru(html, url):
             sets_won, sets_lost = map(int, sets_cell.split(':'))
         else:
             sets_won = sets_lost = 0
+        # Очки могут быть в data-balls, но на странице их часто нет
         points_won = points_lost = None
         if row.get('data-balls'):
             balls = row['data-balls']
@@ -106,90 +120,58 @@ def parse_volleyru(html, url):
     if not teams:
         return teams
 
-    # ----- 2. Парсим матчи (все игры) с той же страницы -----
+    # ----- 2. Парсим матчи (все игры) – нижняя таблица или строки с классом table-game -----
     games = []
-    all_tables = soup.find_all('table', class_='s-table')
-    if len(all_tables) >= 2:
-        games_table = all_tables[1]
+    # Ищем все строки игр (таблица с матчами может быть второй таблицей класса s-table)
+    tables = soup.find_all('table', class_='s-table')
+    if len(tables) >= 2:
+        games_table = tables[1]
         game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
-        for row in game_rows:
-            team_cells = row.find_all('td')
-            if len(team_cells) < 4:
-                continue
-            home_team = away_team = None
-            for cell in team_cells:
-                text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None:
-                    home_team = text.split(' (')[0]
-                elif text and text != ':' and away_team is None:
-                    away_team = text.split(' (')[0]
-                    break
-            if not home_team or not away_team:
-                continue
-            scores_cell = row.find('td', class_='s-table__total-score')
-            if not scores_cell:
-                continue
-            total = scores_cell.get_text(strip=True)
-            if ':' not in total:
-                continue
-            home_sets, away_sets = map(int, total.split(':'))
-            rounds_cell = row.find('td', class_='s-table__rounds-score')
-            home_points = away_points = 0
-            if rounds_cell:
-                rounds_text = rounds_cell.get_text(strip=True)
-                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-                home_points = sum(int(p[0]) for p in pairs)
-                away_points = sum(int(p[1]) for p in pairs)
-            games.append({
-                'home': home_team,
-                'away': away_team,
-                'home_sets': home_sets,
-                'away_sets': away_sets,
-                'home_points': home_points,
-                'away_points': away_points
-            })
     else:
-        # запасной вариант
         game_rows = soup.find_all('tr', class_=re.compile(r'table-game'))
-        for row in game_rows:
-            team_cells = row.find_all('td')
-            if len(team_cells) < 4:
-                continue
-            home_team = away_team = None
-            for cell in team_cells:
-                text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None:
-                    home_team = text.split(' (')[0]
-                elif text and text != ':' and away_team is None:
-                    away_team = text.split(' (')[0]
-                    break
-            if not home_team or not away_team:
-                continue
-            scores_cell = row.find('td', class_='s-table__total-score')
-            if not scores_cell:
-                continue
-            total = scores_cell.get_text(strip=True)
-            if ':' not in total:
-                continue
-            home_sets, away_sets = map(int, total.split(':'))
-            rounds_cell = row.find('td', class_='s-table__rounds-score')
-            home_points = away_points = 0
-            if rounds_cell:
-                rounds_text = rounds_cell.get_text(strip=True)
-                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-                home_points = sum(int(p[0]) for p in pairs)
-                away_points = sum(int(p[1]) for p in pairs)
-            games.append({
-                'home': home_team,
-                'away': away_team,
-                'home_sets': home_sets,
-                'away_sets': away_sets,
-                'home_points': home_points,
-                'away_points': away_points
-            })
-
+    
+    for row in game_rows:
+        # Ищем ячейки с командами
+        team_cells = row.find_all('td')
+        if len(team_cells) < 4:
+            continue
+        home_team = away_team = None
+        for cell in team_cells:
+            text = cell.get_text(strip=True)
+            if text and text != ':' and home_team is None:
+                home_team = normalize_team_name(text)
+            elif text and text != ':' and away_team is None:
+                away_team = normalize_team_name(text)
+                break
+        if not home_team or not away_team:
+            continue
+        # Счёт по сетам
+        scores_cell = row.find('td', class_='s-table__total-score')
+        if not scores_cell:
+            continue
+        total = scores_cell.get_text(strip=True)
+        if ':' not in total:
+            continue
+        home_sets, away_sets = map(int, total.split(':'))
+        # Очки по партиям
+        rounds_cell = row.find('td', class_='s-table__rounds-score')
+        home_points = away_points = 0
+        if rounds_cell:
+            rounds_text = rounds_cell.get_text(strip=True)
+            pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+            home_points = sum(int(p[0]) for p in pairs)
+            away_points = sum(int(p[1]) for p in pairs)
+        games.append({
+            'home': home_team,
+            'away': away_team,
+            'home_sets': home_sets,
+            'away_sets': away_sets,
+            'home_points': home_points,
+            'away_points': away_points
+        })
+    
+    # ----- 3. Если нашли игры, накапливаем очки для команд -----
     if games:
-        # Накопление очков
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
             points_map[g['home']]['points_won'] += g['home_points']
@@ -200,18 +182,22 @@ def parse_volleyru(html, url):
             if team['name'] in points_map:
                 team['points_won'] = points_map[team['name']]['points_won']
                 team['points_lost'] = points_map[team['name']]['points_lost']
+        # Сохраняем матчи для H2H
         app.config['LAST_MATCHES'] = games
+    else:
+        app.config['LAST_MATCHES'] = []
 
     return teams
 
 # ------------------------------------------------------------
 # 3. Парсер для legavolley.it (итальянская мужская лига)
 # ------------------------------------------------------------
-def parse_legavolley_table(html):
+def parse_legavolley(html):
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table', id='GareGiornata')
     if not table:
         return []
+
     teams = []
     rows = table.find_all('tr', id='EvenRow')
     for row in rows:
@@ -224,19 +210,11 @@ def parse_legavolley_table(html):
         cells = row.find_all('td')
         if len(cells) < 12:
             continue
-        numbers = []
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            if text.isdigit():
-                numbers.append(int(text))
-        if len(numbers) >= 4:
-            sets_won = numbers[-4] if len(numbers) >= 4 else 0
-            sets_lost = numbers[-3] if len(numbers) >= 3 else 0
-            points_won = numbers[-2] if len(numbers) >= 2 else None
-            points_lost = numbers[-1] if len(numbers) >= 1 else None
-        else:
-            sets_won = sets_lost = 0
-            points_won = points_lost = None
+        numbers = [int(cell.get_text(strip=True)) for cell in cells if cell.get_text(strip=True).isdigit()]
+        sets_won = numbers[-4] if len(numbers) >= 4 else 0
+        sets_lost = numbers[-3] if len(numbers) >= 3 else 0
+        points_won = numbers[-2] if len(numbers) >= 2 else None
+        points_lost = numbers[-1] if len(numbers) >= 1 else None
         teams.append({
             'name': team_name,
             'sets_won': sets_won,
@@ -249,13 +227,15 @@ def parse_legavolley_table(html):
 # ------------------------------------------------------------
 # 4. Парсер для legavolleyfemminile.it (итальянская женская лига)
 # ------------------------------------------------------------
-def parse_legavolley_femminile_table(html):
+def parse_legavolley_femminile(html):
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table', class_='table classifica')
     if not table:
         return []
+
     teams = []
-    for row in table.find_all('tr'):
+    rows = table.find_all('tr')
+    for row in rows:
         if row.find('th'):
             continue
         name_td = row.find('td', class_=None)
@@ -265,13 +245,13 @@ def parse_legavolley_femminile_table(html):
         team_name = a_tag.get_text(strip=True) if a_tag else name_td.get_text(strip=True)
         if not team_name:
             continue
-        extended = row.find_all('td', class_='classifica-estesa')
-        if len(extended) < 14:
+        extended_cells = row.find_all('td', class_='classifica-estesa')
+        if len(extended_cells) < 14:
             continue
-        sets_won = int(extended[6].get_text(strip=True))
-        sets_lost = int(extended[7].get_text(strip=True))
-        points_won = int(extended[8].get_text(strip=True))
-        points_lost = int(extended[9].get_text(strip=True))
+        sets_won = int(extended_cells[6].get_text(strip=True))
+        sets_lost = int(extended_cells[7].get_text(strip=True))
+        points_won = int(extended_cells[8].get_text(strip=True))
+        points_lost = int(extended_cells[9].get_text(strip=True))
         teams.append({
             'name': team_name,
             'sets_won': sets_won,
@@ -282,10 +262,11 @@ def parse_legavolley_femminile_table(html):
     return teams
 
 # ------------------------------------------------------------
-# 5. Парсер для tvf.org.tr (турецкая лига) – улучшенный с несколькими способами
+# 5. Парсер для tvf.org.tr (турецкая женская лига) – улучшенный
 # ------------------------------------------------------------
 def parse_tvf(html, url=None):
     soup = BeautifulSoup(html, 'html.parser')
+    
     # Способ 1: wire:snapshot
     wire_div = soup.find('div', {'wire:snapshot': True})
     if wire_div:
@@ -321,7 +302,7 @@ def parse_tvf(html, url=None):
             except:
                 pass
 
-    # Способ 2: обычная HTML-таблица
+    # Способ 2: обычная таблица
     table = soup.find('table', class_=re.compile(r'table|standings|puan|ranking'))
     if not table:
         table = soup.find('table')
@@ -340,11 +321,7 @@ def parse_tvf(html, url=None):
                     break
             if not team_name:
                 continue
-            numbers = []
-            for col in cols:
-                text = col.get_text(strip=True)
-                if text.isdigit():
-                    numbers.append(int(text))
+            numbers = [int(cell.get_text(strip=True)) for cell in cols if cell.get_text(strip=True).isdigit()]
             if len(numbers) >= 2:
                 sets_won = numbers[0]
                 sets_lost = numbers[1]
@@ -415,11 +392,12 @@ def parse_tvf(html, url=None):
 # ------------------------------------------------------------
 # 6. Парсер для tauronliga.pl (польская женская лига)
 # ------------------------------------------------------------
-def parse_tauronliga_table(html):
+def parse_tauronliga(html):
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table', id='rs-standings-table-1-1')
     if not table:
         return []
+
     teams = []
     rows = table.find_all('tr', attrs={'data-teamname': True})
     for row in rows:
@@ -442,6 +420,32 @@ def parse_tauronliga_table(html):
             'points_lost': points_lost
         })
     return teams
+
+# ------------------------------------------------------------
+# Универсальная функция для получения матчей (для H2H) – для других лиг
+# ------------------------------------------------------------
+def fetch_games_for_h2h(url, league_type):
+    # Здесь можно добавить парсинг календарей для других лиг
+    # Пока возвращаем пустой список
+    return []
+
+# ------------------------------------------------------------
+# Определение парсера по URL
+# ------------------------------------------------------------
+def detect_parser(html, url):
+    if 'fpv-web.dataproject.com' in url:
+        return parse_fpv_dataproject
+    if 'volley.ru' in url:
+        return parse_volleyru
+    if 'legavolley.it' in url and 'femminile' not in url:
+        return parse_legavolley
+    if 'legavolleyfemminile.it' in url:
+        return parse_legavolley_femminile
+    if 'tvf.org.tr' in url:
+        return parse_tvf
+    if 'tauronliga.pl' in url:
+        return parse_tauronliga
+    return None
 
 # ------------------------------------------------------------
 # Функции для H2H
@@ -470,26 +474,7 @@ def calculate_h2h_factor(team1, team2, matches):
             total_points_2 += m['home_points']
     sets_ratio = (total_sets_1 / max(total_sets_2, 1)) if total_sets_2 > 0 else total_sets_1 + 1
     points_ratio = (total_points_1 / max(total_points_2, 1)) if total_points_2 > 0 else total_points_1 + 1
-    factor = (sets_ratio * points_ratio) ** 0.5
-    return max(0.5, min(2.0, factor))
-
-# ------------------------------------------------------------
-# Определение парсера по URL
-# ------------------------------------------------------------
-def detect_parser(url):
-    if 'fpv-web.dataproject.com' in url:
-        return parse_fpv_dataproject_table
-    if 'volley.ru' in url:
-        return parse_volleyru
-    if 'legavolley.it' in url and 'femminile' not in url:
-        return parse_legavolley_table
-    if 'legavolleyfemminile.it' in url:
-        return parse_legavolley_femminile_table
-    if 'tvf.org.tr' in url:
-        return parse_tvf
-    if 'tauronliga.pl' in url:
-        return parse_tauronliga_table
-    return None
+    return max(0.5, min(2.0, (sets_ratio * points_ratio) ** 0.5))
 
 # ------------------------------------------------------------
 # API
@@ -513,11 +498,11 @@ def parse():
         response.raise_for_status()
         html = response.text
 
-        parser = detect_parser(url)
+        parser = detect_parser(html, url)
         if not parser:
             return jsonify({'error': 'Сайт не поддерживается'}), 400
 
-        if parser == parse_fpv_dataproject_table:
+        if parser == parse_fpv_dataproject:
             teams = parser(html, merge_phases)
         elif parser == parse_volleyru:
             teams = parser(html, url)
@@ -548,54 +533,58 @@ def calculate():
     if not home or not away:
         return jsonify({'error': 'Команды не найдены'}), 400
 
-    # BT вероятность
+    # BT вероятность (на основе сетов)
     home_strength = home['sets_won'] / max(home['sets_lost'], 1)
     away_strength = away['sets_won'] / max(away['sets_lost'], 1)
-    expected_ratio_bt = home_strength / max(away_strength, 0.01)
-    win_prob_bt = expected_ratio_bt / (1 + expected_ratio_bt)
+    home_adv = 1.05 if not neutral_ground else 1.0
+    expected_ratio = (home_strength * home_adv) / max(away_strength, 0.01)
+    win_prob_bt = expected_ratio / (1 + expected_ratio)
     win_prob_bt = max(0.05, min(0.95, win_prob_bt))
 
-    # PR вероятность (если есть очки)
+    # PR вероятность (на основе очков, если есть)
     win_prob_pr = None
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
-        home_points_ratio = home['points_won'] / max(home['points_lost'], 1)
-        away_points_ratio = away['points_won'] / max(away['points_lost'], 1)
-        expected_ratio_pr = home_points_ratio / max(away_points_ratio, 0.01)
+        home_pts_ratio = home['points_won'] / max(home['points_lost'], 1)
+        away_pts_ratio = away['points_won'] / max(away['points_lost'], 1)
+        expected_ratio_pr = (home_pts_ratio * home_adv) / max(away_pts_ratio, 0.01)
         win_prob_pr = expected_ratio_pr / (1 + expected_ratio_pr)
         win_prob_pr = max(0.05, min(0.95, win_prob_pr))
 
     final_prob = win_prob_pr if win_prob_pr is not None else win_prob_bt
 
     # H2H коррекция
-    if use_h2h and app.config.get('LAST_MATCHES'):
-        h2h_factor = calculate_h2h_factor(home['name'], away['name'], app.config['LAST_MATCHES'])
-        final_prob = final_prob * h2h_factor
-        final_prob = max(0.05, min(0.95, final_prob))
+    if use_h2h:
+        matches = app.config.get('LAST_MATCHES', [])
+        if matches:
+            h2h_factor = calculate_h2h_factor(home['name'], away['name'], matches)
+            final_prob = final_prob * h2h_factor
+            final_prob = max(0.05, min(0.95, final_prob))
 
     home_win_odds = round(1 / final_prob, 2)
     away_win_odds = round(1 / (1 - final_prob), 2)
-    recommendation = f"Ставка на {home['name']}" if final_prob > 0.5 else f"Ставка на {away['name']}"
-    fair_odds = home_win_odds if final_prob > 0.5 else away_win_odds
+    if final_prob > 0.5:
+        recommendation = f"Ставка на {home['name']}"
+        fair_odds = home_win_odds
+    else:
+        recommendation = f"Ставка на {away['name']}"
+        fair_odds = away_win_odds
 
     # Фора по очкам
     if home['points_won'] and away['points_won'] and home['points_won'] > 0 and away['points_won'] > 0:
-        home_points_ratio = home['points_won'] / max(home['points_lost'], 1)
-        away_points_ratio = away['points_won'] / max(away['points_lost'], 1)
-        if home_points_ratio > away_points_ratio:
+        home_pts_ratio = home['points_won'] / max(home['points_lost'], 1)
+        away_pts_ratio = away['points_won'] / max(away['points_lost'], 1)
+        if home_pts_ratio > away_pts_ratio:
             favorite = home
             favorite_is_home = True
         else:
             favorite = away
             favorite_is_home = False
-        pts_ratio = max(home_points_ratio, away_points_ratio) / min(home_points_ratio, away_points_ratio)
+        pts_ratio = max(home_pts_ratio, away_pts_ratio) / min(home_pts_ratio, away_pts_ratio)
         expected_diff = (pts_ratio - 1) * 22
         expected_diff = max(-18, min(18, expected_diff))
         handicap = round(abs(expected_diff) / 0.5) * 0.5
         handicap = max(0.5, min(20.0, handicap))
-        if favorite_is_home:
-            handicap_line = f"{favorite['name']} (фаворит) дома с форой {handicap}"
-        else:
-            handicap_line = f"{favorite['name']} (фаворит) в гостях с форой -{handicap}"
+        handicap_line = f"{favorite['name']} (фаворит) дома с форой {handicap}" if favorite_is_home else f"{favorite['name']} (фаворит) в гостях с форой -{handicap}"
     else:
         handicap_line = "Нет данных по очкам для расчёта форы"
 
