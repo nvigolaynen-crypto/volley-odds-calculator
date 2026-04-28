@@ -18,39 +18,45 @@ def normalize_team_name(name):
     return name.strip()
 
 # ------------------------------------------------------------
-# 1. Парсер для fpv-web.dataproject.com (португальская лига)
+# 1. Универсальный парсер для любых сайтов DataProject
+#    (fpv-web.dataproject.com, frv-web.dataproject.com и т.д.)
 # ------------------------------------------------------------
-def parse_fpv_dataproject(html, merge_phases=False):
+def parse_dataproject(html, merge_phases=False):
     soup = BeautifulSoup(html, 'html.parser')
-    if not merge_phases:
-        first_tab = soup.find('div', id='Content_Main_446')
-        if not first_tab:
-            first_tab = soup.find('div', class_='rmpView')
-        if not first_tab:
-            return []
-        container = first_tab
-    else:
-        container = soup
-
-    rows = container.find_all('tr', class_=lambda c: c and ('RG_Standing_Main_AltBackColor' in c))
+    
+    # Ищем таблицу с данными (RadGrid / rgMasterTable)
+    table = soup.find('table', class_=re.compile(r'RadGrid|rgMasterTable'))
+    if not table:
+        table = soup.find('table', class_='rgMasterTable')
+    if not table:
+        return []
+    
+    # Строки с командами: часто RG_Standing_Main_AltBackColor или rgRow
+    rows = table.find_all('tr', class_=re.compile(r'RG_Standing_Main_AltBackColor|rgRow|rgAltRow'))
+    if not rows:
+        return []
+    
     teams_dict = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
-
+    
     for row in rows:
-        team_name_span = row.find('span', id='TeamName')
-        if not team_name_span:
+        # Название команды
+        team_span = row.find('span', id='TeamName')
+        if not team_span:
             continue
-        team_name = team_name_span.get_text(strip=True)
-
+        team_name = team_span.get_text(strip=True)
+        
+        # Сеты
         sets_won_span = row.find('span', id='SetsWon')
         sets_lost_span = row.find('span', id='SetsLost')
         sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
         sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
-
+        
+        # Очки
         points_won_span = row.find('span', id='PuntiFatti')
         points_lost_span = row.find('span', id='PuntiSubiti')
         points_won = int(points_won_span.get_text(strip=True)) if points_won_span else 0
         points_lost = int(points_lost_span.get_text(strip=True)) if points_lost_span else 0
-
+        
         if merge_phases:
             teams_dict[team_name]['sets_won'] += sets_won
             teams_dict[team_name]['sets_lost'] += sets_lost
@@ -60,10 +66,10 @@ def parse_fpv_dataproject(html, merge_phases=False):
             teams_dict[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
-                'points_won': points_won,
-                'points_lost': points_lost
+                'points_won': points_won if points_won > 0 else None,
+                'points_lost': points_lost if points_lost > 0 else None
             }
-
+    
     teams = []
     for name, stats in teams_dict.items():
         teams.append({
@@ -77,14 +83,13 @@ def parse_fpv_dataproject(html, merge_phases=False):
     return teams
 
 # ------------------------------------------------------------
-# 2. Парсер для volley.ru (чемпионат России)
+# 2. Парсер для volley.ru (чемпионат России) – без объединения этапов
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table', class_='s-table')
     if not table:
         return []
-
     teams = []
     rows = table.find_all('tr')
     for row in rows[1:]:
@@ -112,8 +117,7 @@ def parse_volleyru(html, url):
             'points_won': points_won,
             'points_lost': points_lost
         })
-
-    # Парсинг детальной таблицы матчей для сбора очков по партиям
+    # Парсинг детальной таблицы матчей для очков (для H2H и форы)
     games = []
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
@@ -172,7 +176,6 @@ def parse_volleyru(html, url):
                 'home_points': home_points,
                 'away_points': away_points
             })
-
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -260,7 +263,7 @@ def parse_legavolley_femminile(html):
     return teams
 
 # ------------------------------------------------------------
-# 5. Парсер для tvf.org.tr (турецкая женская лига)
+# 5. Парсер для tvf.org.tr (турецкая женская лига) – выбор этапа и группы
 # ------------------------------------------------------------
 def parse_tvf_stages_and_groups(html):
     soup = BeautifulSoup(html, 'html.parser')
@@ -417,8 +420,8 @@ def parse_tauronliga(html):
 # Определение парсера по URL
 # ------------------------------------------------------------
 def detect_parser(html, url):
-    if 'fpv-web.dataproject.com' in url:
-        return parse_fpv_dataproject
+    if 'dataproject.com' in url:
+        return parse_dataproject
     if 'volley.ru' in url:
         return parse_volleyru
     if 'legavolley.it' in url and 'femminile' not in url:
@@ -487,7 +490,7 @@ def parse():
             parser = detect_parser(html, url)
             if not parser:
                 return jsonify({'error': 'Сайт не поддерживается'}), 400
-            if parser == parse_fpv_dataproject:
+            if parser == parse_dataproject:
                 teams = parser(html, merge_phases)
             elif parser == parse_volleyru:
                 teams = parser(html, url)
