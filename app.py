@@ -123,54 +123,60 @@ def parse_volleyru(html, url):
     games = []
     games_table = soup.find('table', class_='s-table s-table--round')
     if not games_table:
-        # fallback – вторая таблица с классом s-table
         tables = soup.find_all('table', class_='s-table')
         if len(tables) >= 2:
             games_table = tables[1]
     if games_table:
-        # Ищем строки с классом 'table-game' (могут быть и без класса, но обычно есть)
         game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
         if not game_rows:
-            # если нет класса, берём все строки, кроме первых двух (заголовки)
-            game_rows = games_table.find_all('tr')[2:]
+            all_rows = games_table.find_all('tr')
+            if len(all_rows) > 2:
+                game_rows = all_rows[2:]
         for row in game_rows:
-            cols = row.find_all('td')
-            if len(cols) < 4:
+            cells = row.find_all('td')
+            if len(cells) < 4:
                 continue
-            # Определяем домашнюю и гостевую команды (первые две непустые ячейки, кроме ячейки с ":")
+            
+            # Извлекаем названия команд: первая и третья значимые ячейки
             home_team = None
             away_team = None
-            for cell in cols:
+            for cell in cells:
                 text = cell.get_text(strip=True)
-                if text and text != ':' and home_team is None:
+                if text and text != ':' and home_team is None and not re.match(r'\d+:\d+', text):
                     home_team = normalize_team_name(text)
-                elif text and text != ':' and away_team is None:
+                elif text and text != ':' and away_team is None and not re.match(r'\d+:\d+', text):
                     away_team = normalize_team_name(text)
-                    break
+                    if home_team and away_team:
+                        break
             if not home_team or not away_team:
                 continue
-            # Счёт матча (общий)
-            scores_cell = row.find('td', class_='s-table__total-score')
-            if not scores_cell:
-                # альтернативный поиск по тексту типа "3:1"
-                for cell in cols:
-                    if re.match(r'\d+:\d+', cell.get_text(strip=True)):
-                        scores_cell = cell
-                        break
-            if not scores_cell:
+            
+            # Ищем ячейку с общим счётом (формат "3:1" или "0:3")
+            score_cell = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if re.match(r'^\d+:\d+$', text):
+                    score_cell = cell
+                    break
+            if not score_cell:
                 continue
-            total = scores_cell.get_text(strip=True)
-            if ':' not in total:
-                continue
+            total = score_cell.get_text(strip=True)
             home_sets, away_sets = map(int, total.split(':'))
-            # Очки по партиям
+            
+            # Ищем ячейку с очками по партиям (формат "(25:20, 18:25, ...)")
+            rounds_cell = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if '(' in text and ')' in text and ':' in text:
+                    rounds_cell = cell
+                    break
             home_points = away_points = 0
-            rounds_cell = row.find('td', class_='s-table__rounds-score')
             if rounds_cell:
                 rounds_text = rounds_cell.get_text(strip=True)
                 pairs = re.findall(r'(\d+):(\d+)', rounds_text)
                 home_points = sum(int(p[0]) for p in pairs)
                 away_points = sum(int(p[1]) for p in pairs)
+            
             games.append({
                 'home': home_team,
                 'away': away_team,
