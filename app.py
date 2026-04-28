@@ -10,15 +10,14 @@ from collections import defaultdict
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
+
 # ------------------------------------------------------------
 # Утилита для нормализации названий команд (удаляем город в скобках)
 # ------------------------------------------------------------
 def normalize_team_name(name):
-    # Удаляем текст в скобках (город)
     name = re.sub(r'\s*\([^)]*\)', '', name)
-    # Удаляем лишние пробелы
-    name = name.strip()
-    return name
+    return name.strip()
+
 
 # ------------------------------------------------------------
 # 1. Парсер для fpv-web.dataproject.com (португальская лига)
@@ -79,12 +78,13 @@ def parse_fpv_dataproject(html, merge_phases=False):
     teams.sort(key=lambda x: x['sets_won'] / max(x['sets_lost'], 1), reverse=True)
     return teams
 
+
 # ------------------------------------------------------------
 # 2. Парсер для volley.ru (чемпионат России) – улучшенный
 # ------------------------------------------------------------
 def parse_volleyru(html, url):
     soup = BeautifulSoup(html, 'html.parser')
-    
+
     # ----- 1. Парсим таблицу с командами -----
     table = soup.find('table', class_='s-table')
     if not table:
@@ -104,7 +104,6 @@ def parse_volleyru(html, url):
             sets_won, sets_lost = map(int, sets_cell.split(':'))
         else:
             sets_won = sets_lost = 0
-        # Очки могут быть в data-balls, но на странице их часто нет
         points_won = points_lost = None
         if row.get('data-balls'):
             balls = row['data-balls']
@@ -120,18 +119,16 @@ def parse_volleyru(html, url):
     if not teams:
         return teams
 
-    # ----- 2. Парсим матчи (все игры) – нижняя таблица или строки с классом table-game -----
+    # ----- 2. Парсим матчи (все игры) – вторая таблица или строки с классом table-game -----
     games = []
-    # Ищем все строки игр (таблица с матчами может быть второй таблицей класса s-table)
     tables = soup.find_all('table', class_='s-table')
     if len(tables) >= 2:
         games_table = tables[1]
         game_rows = games_table.find_all('tr', class_=re.compile(r'table-game'))
     else:
         game_rows = soup.find_all('tr', class_=re.compile(r'table-game'))
-    
+
     for row in game_rows:
-        # Ищем ячейки с командами
         team_cells = row.find_all('td')
         if len(team_cells) < 4:
             continue
@@ -145,7 +142,6 @@ def parse_volleyru(html, url):
                 break
         if not home_team or not away_team:
             continue
-        # Счёт по сетам
         scores_cell = row.find('td', class_='s-table__total-score')
         if not scores_cell:
             continue
@@ -153,7 +149,6 @@ def parse_volleyru(html, url):
         if ':' not in total:
             continue
         home_sets, away_sets = map(int, total.split(':'))
-        # Очки по партиям
         rounds_cell = row.find('td', class_='s-table__rounds-score')
         home_points = away_points = 0
         if rounds_cell:
@@ -169,8 +164,8 @@ def parse_volleyru(html, url):
             'home_points': home_points,
             'away_points': away_points
         })
-    
-    # ----- 3. Если нашли игры, накапливаем очки для команд -----
+
+    # ----- 3. Если нашли игры – накапливаем очки для команд и сохраняем для H2H -----
     if games:
         points_map = defaultdict(lambda: {'points_won': 0, 'points_lost': 0})
         for g in games:
@@ -182,12 +177,12 @@ def parse_volleyru(html, url):
             if team['name'] in points_map:
                 team['points_won'] = points_map[team['name']]['points_won']
                 team['points_lost'] = points_map[team['name']]['points_lost']
-        # Сохраняем матчи для H2H
         app.config['LAST_MATCHES'] = games
     else:
         app.config['LAST_MATCHES'] = []
 
     return teams
+
 
 # ------------------------------------------------------------
 # 3. Парсер для legavolley.it (итальянская мужская лига)
@@ -223,6 +218,7 @@ def parse_legavolley(html):
             'points_lost': points_lost
         })
     return teams
+
 
 # ------------------------------------------------------------
 # 4. Парсер для legavolleyfemminile.it (итальянская женская лига)
@@ -261,12 +257,13 @@ def parse_legavolley_femminile(html):
         })
     return teams
 
+
 # ------------------------------------------------------------
 # 5. Парсер для tvf.org.tr (турецкая женская лига) – улучшенный
 # ------------------------------------------------------------
 def parse_tvf(html, url=None):
     soup = BeautifulSoup(html, 'html.parser')
-    
+
     # Способ 1: wire:snapshot
     wire_div = soup.find('div', {'wire:snapshot': True})
     if wire_div:
@@ -347,6 +344,7 @@ def parse_tvf(html, url=None):
             if json_match:
                 try:
                     data = json.loads(json_match.group(1))
+
                     def find_puantablosu(obj):
                         if isinstance(obj, dict):
                             if 'puantablosu' in obj:
@@ -361,6 +359,7 @@ def parse_tvf(html, url=None):
                                 if res:
                                     return res
                         return None
+
                     puantablosu = find_puantablosu(data)
                     if puantablosu:
                         teams = []
@@ -388,6 +387,7 @@ def parse_tvf(html, url=None):
                 except:
                     pass
     return []
+
 
 # ------------------------------------------------------------
 # 6. Парсер для tauronliga.pl (польская женская лига)
@@ -421,13 +421,6 @@ def parse_tauronliga(html):
         })
     return teams
 
-# ------------------------------------------------------------
-# Универсальная функция для получения матчей (для H2H) – для других лиг
-# ------------------------------------------------------------
-def fetch_games_for_h2h(url, league_type):
-    # Здесь можно добавить парсинг календарей для других лиг
-    # Пока возвращаем пустой список
-    return []
 
 # ------------------------------------------------------------
 # Определение парсера по URL
@@ -447,11 +440,13 @@ def detect_parser(html, url):
         return parse_tauronliga
     return None
 
+
 # ------------------------------------------------------------
 # Функции для H2H
 # ------------------------------------------------------------
 def get_h2h_matches(team1, team2, matches):
     return [m for m in matches if (m['home'] == team1 and m['away'] == team2) or (m['home'] == team2 and m['away'] == team1)]
+
 
 def calculate_h2h_factor(team1, team2, matches):
     h2h = get_h2h_matches(team1, team2, matches)
@@ -476,12 +471,14 @@ def calculate_h2h_factor(team1, team2, matches):
     points_ratio = (total_points_1 / max(total_points_2, 1)) if total_points_2 > 0 else total_points_1 + 1
     return max(0.5, min(2.0, (sets_ratio * points_ratio) ** 0.5))
 
+
 # ------------------------------------------------------------
 # API
 # ------------------------------------------------------------
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
+
 
 @app.route('/api/parse', methods=['POST'])
 def parse():
@@ -515,6 +512,7 @@ def parse():
         return jsonify({'success': True, 'teams': teams, 'count': len(teams)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/calculate', methods=['POST'])
 def calculate():
@@ -584,7 +582,10 @@ def calculate():
         expected_diff = max(-18, min(18, expected_diff))
         handicap = round(abs(expected_diff) / 0.5) * 0.5
         handicap = max(0.5, min(20.0, handicap))
-        handicap_line = f"{favorite['name']} (фаворит) дома с форой {handicap}" if favorite_is_home else f"{favorite['name']} (фаворит) в гостях с форой -{handicap}"
+        if favorite_is_home:
+            handicap_line = f"{favorite['name']} (фаворит) дома с форой {handicap}"
+        else:
+            handicap_line = f"{favorite['name']} (фаворит) в гостях с форой -{handicap}"
     else:
         handicap_line = "Нет данных по очкам для расчёта форы"
 
@@ -602,6 +603,7 @@ def calculate():
             'fair_odds': fair_odds
         }
     })
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
