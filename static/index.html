@@ -207,9 +207,9 @@
 <div class="container">
     <div class="card">
         <h1>🏐 Volley Odds Calculator</h1>
-        <div class="sub">Автоматический парсинг турнирных таблиц (FPV DataProject)</div>
+        <div class="sub">Автоматический парсинг турнирных таблиц и учёт личных встреч (H2H)</div>
 
-        <input type="text" id="url-input" placeholder="https://fpv-web.dataproject.com/CompetitionStandings.aspx?ID=127&PID=171">
+        <input type="text" id="url-input" placeholder="https://...">
         <div class="checkbox-wrapper">
             <input type="checkbox" id="merge-phases">
             <label for="merge-phases" style="margin:0; width:auto;">📊 Объединить все этапы (суммировать статистику)</label>
@@ -231,7 +231,15 @@
                     <div id="away-list"></div>
                 </div>
             </div>
-            <button id="calc-btn">🎯 Рассчитать прогноз</button>
+            <div class="checkbox-wrapper" style="margin-top: 15px;">
+                <input type="checkbox" id="use-h2h">
+                <label for="use-h2h" style="margin:0; width:auto;">📈 Учитывать историю личных встреч (H2H)</label>
+            </div>
+            <div class="checkbox-wrapper" style="margin-top: 5px;">
+                <input type="checkbox" id="neutral-ground">
+                <label for="neutral-ground" style="margin:0; width:auto;">🏟️ Нейтральная площадка (отключить фактор дома)</label>
+            </div>
+            <button id="calc-btn" style="margin-top: 15px;">🎯 Рассчитать прогноз</button>
         </div>
 
         <div id="result" style="display: none;">
@@ -240,7 +248,8 @@
         </div>
 
         <div class="footer-note">
-            ⚡ Прогноз основан на статистике сетов и очков. Не учитывает составы, травмы, мотивацию.
+            ⚡ Прогноз основан на статистике сетов и очков. Не учитывает составы, травмы, мотивацию.<br>
+            🔄 H2H анализирует все сыгранные матчи между выбранными командами.
         </div>
     </div>
 </div>
@@ -369,6 +378,9 @@
             return;
         }
 
+        const neutralGround = document.getElementById('neutral-ground').checked;
+        const useH2H = document.getElementById('use-h2h').checked;
+
         loadingDiv.style.display = 'block';
         try {
             const response = await fetch('/api/calculate', {
@@ -377,7 +389,9 @@
                 body: JSON.stringify({
                     teams: currentTeams,
                     home_team: selectedHome,
-                    away_team: selectedAway
+                    away_team: selectedAway,
+                    neutral_ground: neutralGround,
+                    use_h2h: useH2H
                 })
             });
             const data = await response.json();
@@ -420,6 +434,7 @@
                 <span class="odds-badge">Победа ${pred.home_team}: ${pred.home_win_odds}</span>
                 <span class="odds-badge">Победа ${pred.away_team}: ${pred.away_win_odds}</span>
             </div>
+            <div style="margin-top: 15px; font-style: italic;">${pred.recommendation} (справедливый кф ${pred.fair_odds})</div>
         `;
     }
 
@@ -431,6 +446,8 @@
         resultDiv.style.display = 'none';
         document.getElementById('url-input').value = '';
         document.getElementById('merge-phases').checked = false;
+        document.getElementById('use-h2h').checked = false;
+        document.getElementById('neutral-ground').checked = false;
         statusDiv.style.display = 'none';
     }
 
