@@ -17,37 +17,48 @@ st.title("🏐 Волейбольная статистика")
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
+# Ввод URL
 url = st.text_input(
     "Введите URL страницы с результатами (таблица, standings)",
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
+# Чекбокс "Считать все этапы" (только для volley.ru)
+combine_phases = st.checkbox("Считать все этапы (предварительный + плей-офф)", value=False)
+
 if st.button("Парсить") and url:
     with st.spinner("Загрузка данных..."):
         try:
             parser = get_parser(url)
-            df, _ = parser.fetch_stats(url)
+            df, _ = parser.fetch_stats(url, combine_phases=combine_phases)
             st.session_state.df_teams = df
             st.success("Данные загружены")
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
 if st.session_state.df_teams is not None:
-    st.subheader("Турнирная таблица (сеты и мячи)")
-    st.dataframe(st.session_state.df_teams)
-
+    # Без вывода полной таблицы – только выбор команд
     st.divider()
     st.subheader("📊 Прогноз на матч")
 
+    # Получаем список команд
+    teams = st.session_state.df_teams['Команда'].tolist()
+
     col1, col2 = st.columns(2)
     with col1:
-        home = st.selectbox("Домашняя команда", st.session_state.df_teams['Команда'].tolist())
+        home = st.selectbox("Домашняя команда", teams)
+        # Показываем статистику выбранной команды
+        home_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
+        st.caption(f"Сеты: {home_data['Сеты']} | Мячи: {home_data['Мячи']}")
+
     with col2:
-        away = st.selectbox("Гостевая команда", st.session_state.df_teams['Команда'].tolist())
+        away = st.selectbox("Гостевая команда", teams)
+        away_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
+        st.caption(f"Сеты: {away_data['Сеты']} | Мячи: {away_data['Мячи']}")
 
     if home and away and home != away:
-        home_stats = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
-        away_stats = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
+        home_stats = home_data
+        away_stats = away_data
 
         try:
             home_sets_w, home_sets_l = map(int, home_stats['Сеты'].split(':'))
@@ -58,7 +69,13 @@ if st.session_state.df_teams is not None:
             st.error("Ошибка формата данных")
             st.stop()
 
-        total_matches = 30  # приблизительно, для России – 30 туров, для других лиг можно вычислить
+        # Количество матчей: для России при объединении этапов может быть больше 30,
+        # но для простоты оставим 30 (можно вычислить по сумме побед+поражений)
+        # Лучше использовать фактическое количество матчей, чтобы фора была адекватной
+        total_matches = (home_sets_w + home_sets_l) // 3  # примерно
+        if total_matches == 0:
+            total_matches = 30
+
         home_avg_diff = (home_pts_w - home_pts_l) / total_matches
         away_avg_diff = (away_pts_w - away_pts_l) / total_matches
         expected_diff = home_avg_diff - away_avg_diff
