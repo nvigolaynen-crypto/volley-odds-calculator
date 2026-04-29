@@ -1,71 +1,84 @@
-import subprocess
-import os
 import re
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
-import glob
 from .base_parser import BaseParser
 
 class DataProjectParser(BaseParser):
     def fetch_stats(self, url: str):
-        fed = self._extract_fed_from_url(url)
-        comp_id = self._extract_comp_id_from_url(url)
-        if not fed or not comp_id:
-            raise ValueError("Не удалось определить fed или comp_id из URL")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        resp = requests.get(url, headers=headers)
+        soup = BeautifulSoup(resp.text, 'html.parser')
 
-        os.makedirs("temp_dp", exist_ok=True)
-        original_dir = os.getcwd()
-        os.chdir("temp_dp")
+        # Находим таблицу с итоговой статистикой (класс RG_Standing_Main или просто таблица с нужными id)
+        # В HTML данные находятся в тегах с id="SetsWon", "SetsLost", "PuntiFatti", "PuntiSubiti"
+        # Ищем все строки, содержащие эти элементы
+        team_rows = []
+        # Ищем все строки, содержащие span или p с id="TeamName"
+        for team_span in soup.find_all('span', id='TeamName'):
+            row = team_span.find_parent('tr')
+            if row:
+                team_rows.append(row)
 
-        try:
-            cmd = ["volleystats", "--fed", fed, "--comp", comp_id]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise RuntimeError(f"volleystats ошибка: {result.stderr}")
+        if not team_rows:
+            # Альтернативный поиск: ищем все строки в tbody таблицы RG_Standing_Main
+            main_table = soup.find('table', class_='RG_Standing_Main')
+            if not main_table:
+                # Попробуем найти таблицу по другому классу
+                main_table = soup.find('table', class_='rgMasterTable')
+            if main_table:
+                tbody = main_table.find('tbody')
+                if tbody:
+                    team_rows = tbody.find_all('tr')
 
-            if not os.path.exists("data"):
-                raise FileNotFoundError("Папка data не создана")
-
-            os.chdir("data")
-            csv_files = glob.glob("*.csv")
-            if not csv_files:
-                raise FileNotFoundError("CSV файлы не найдены")
-
-            team_stats = {}
-            for file in csv_files:
-                df = pd.read_csv(file)
-                if 'team_name' not in df.columns:
+        stats = {}
+        for row in team_rows:
+            # Название команды
+            team_name_tag = row.find('span', id='TeamName')
+            if not team_name_tag:
+                # возможно, название в ссылке
+                link = row.find('a', href=re.compile(r'CompetitionTeamDetails.aspx'))
+                if link:
+                    team_name = link.get_text(strip=True)
+                else:
                     continue
-                team = df['team_name'].iloc[0]
-                sets_won = df['sets_won'].sum() if 'sets_won' in df.columns else 0
-                sets_lost = df['sets_lost'].sum() if 'sets_lost' in df.columns else 0
-                points_won = df['points_won'].sum() if 'points_won' in df.columns else 0
-                points_lost = df['points_lost'].sum() if 'points_lost' in df.columns else 0
-                team_stats[team] = {
-                    'sets_won': sets_won,
-                    'sets_lost': sets_lost,
-                    'points_won': points_won,
-                    'points_lost': points_lost
-                }
+            else:
+                team_name = team_name_tag.get_text(strip=True)
 
-            if not team_stats:
-                raise ValueError("Нет данных о командах")
+            # Извлекаем сеты
+            sets_won_tag = row.find('span', id='SetsWon')
+            sets_lost_tag = row.find('span', id='SetsLost')
+            if sets_won_tag and sets_lost_tag:
+                sets_won = int(sets_won_tag.get_text(strip=True))
+                sets_lost = int(sets_lost_tag.get_text(strip=True))
+            else:
+                # возможно, данные в других тегах или колонках
+                continue
 
-            df_stats = pd.DataFrame.from_dict(team_stats, orient='index')
-            df_stats = df_stats.reset_index().rename(columns={'index': 'Команда'})
-            df_stats['Сеты'] = df_stats['sets_won'].astype(str) + ':' + df_stats['sets_lost'].astype(str)
-            df_stats['Мячи'] = df_stats['points_won'].astype(str) + ':' + df_stats['points_lost'].astype(str)
-            df_stats = df_stats.sort_values('sets_won', ascending=False)
-            return df_stats[['Команда', 'Сеты', 'Мячи']], pd.DataFrame()
+            # Извлекаем очки
+            points_won_tag = row.find('span', id='PuntiFatti')
+            points_lost_tag = row.find('span', id='PuntiSubiti')
+            if points_won_tag and points_lost_tag:
+                points_won = int(points_won_tag.get_text(strip=True))
+                points_lost = int(points_lost_tag.get_text(strip=True))
+            else:
+                points_won = points_lost = 0
 
-        finally:
-            os.chdir(original_dir)
-            import shutil
-            shutil.rmtree("temp_dp", ignore_errors=True)
+            stats[team_name] = {
+                'sets_won': sets_won,
+                'sets_lost': sets_lost,
+                'points_won': points_won,
+                'points_lost': points_lost
+            }
 
-    def _extract_fed_from_url(self, url: str) -> str:
-        match = re.search(r'https?://([a-z]+)-web\.dataproject\.com', url)
-        return match.group(1) if match else None
+        if not stats:
+            raise ValueError("Не удалось извлечь статистику для команд")
 
-    def _extract_comp_id_from_url(self, url: str) -> str:
-        match = re.search(r'[?&]ID=(\d+)', url)
-        return match.group(1) if match else None
+        df = pd.DataFrame.from_dict(stats, orient='index')
+        df = df.reset_index().rename(columns={'index': 'Команда'})
+        df['Сеты'] = df['sets_won'].astype(str) + ':' + df['sets_lost'].astype(str)
+        df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
+        df = df.sort_values('sets_won', ascending=False)
+        return df[['Команда', 'Сеты', 'Мячи']], pd.DataFrame()
