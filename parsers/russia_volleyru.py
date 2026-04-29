@@ -1,7 +1,6 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from collections import defaultdict
 import pandas as pd
 from .base_parser import BaseParser
 
@@ -11,50 +10,44 @@ class RussiaVolleyRuParser(BaseParser):
         resp = requests.get(url, headers=headers)
         soup = BeautifulSoup(resp.text, 'html.parser')
 
-        detail_table = soup.find('table', class_='s-table--round')
-        if not detail_table:
-            raise ValueError("Не найдена таблица с детальными результатами матчей")
+        # Ищем матричную таблицу (без класса --round)
+        matrix_table = soup.find('table', class_='s-table')
+        if not matrix_table or 's-table--round' in matrix_table.get('class', []):
+            raise ValueError("Не найдена матричная таблица с итоговой статистикой")
 
-        stats = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0,
-                                     'points_won': 0, 'points_lost': 0})
-
-        rows = detail_table.find_all('tr', class_='table-game')
-        for row in rows:
+        stats = {}
+        tbody = matrix_table.find('tbody')
+        for row in tbody.find_all('tr'):
             cells = row.find_all('td')
-            if len(cells) < 6:
-                continue
-            home = cells[2].get_text(strip=True)
-            away = cells[4].get_text(strip=True)
-
-            total_score_span = row.find('span', class_='s-table__total-score')
-            if not total_score_span:
-                continue
-            total_score = total_score_span.get_text(strip=True)
-            sets_match = re.search(r'(\d+):(\d+)', total_score)
-            if not sets_match:
-                continue
-            home_sets, away_sets = map(int, sets_match.groups())
-
-            rounds_span = row.find('span', class_='s-table__rounds-score')
-            if not rounds_span:
-                continue
-            rounds_text = rounds_span.get_text(strip=True)
-            point_pairs = re.findall(r'(\d+):(\d+)', rounds_text)
-            if not point_pairs:
+            if len(cells) < 2:
                 continue
 
-            home_points = sum(int(p[0]) for p in point_pairs)
-            away_points = sum(int(p[1]) for p in point_pairs)
+            # Название команды (первая ячейка, может содержать ссылку)
+            team_cell = cells[0]
+            team_name = team_cell.get_text(strip=True).split('(')[0].strip()
 
-            stats[home]['sets_won'] += home_sets
-            stats[home]['sets_lost'] += away_sets
-            stats[away]['sets_won'] += away_sets
-            stats[away]['sets_lost'] += home_sets
+            # Последняя ячейка (колонка "Пар") содержит итоговые сеты, например "87:24"
+            last_cell = cells[-1]
+            sets_text = last_cell.get_text(strip=True)
 
-            stats[home]['points_won'] += home_points
-            stats[home]['points_lost'] += away_points
-            stats[away]['points_won'] += away_points
-            stats[away]['points_lost'] += home_points
+            # Мячи из атрибута data-balls
+            balls = last_cell.get('data-balls')
+            if balls and ':' in balls:
+                points_won, points_lost = map(int, balls.split(':'))
+            else:
+                points_won = points_lost = 0
+
+            if ':' in sets_text:
+                sets_won, sets_lost = map(int, sets_text.split(':'))
+            else:
+                sets_won = sets_lost = 0
+
+            stats[team_name] = {
+                'sets_won': sets_won,
+                'sets_lost': sets_lost,
+                'points_won': points_won,
+                'points_lost': points_lost
+            }
 
         df = pd.DataFrame.from_dict(stats, orient='index')
         df = df.reset_index().rename(columns={'index': 'Команда'})
