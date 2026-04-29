@@ -17,8 +17,10 @@ st.title("🏐 Волейбольная статистика")
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
-url = st.text_input("Введите URL страницы с результатами",
-                    "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy")
+url = st.text_input(
+    "Введите URL страницы с результатами (таблица, standings)",
+    "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
+)
 
 if st.button("Парсить") and url:
     with st.spinner("Загрузка данных..."):
@@ -56,7 +58,7 @@ if st.session_state.df_teams is not None:
             st.error("Ошибка формата данных")
             st.stop()
 
-        total_matches = 30  # приблизительно
+        total_matches = 30  # приблизительно, для России – 30 туров, для других лиг можно вычислить
         home_avg_diff = (home_pts_w - home_pts_l) / total_matches
         away_avg_diff = (away_pts_w - away_pts_l) / total_matches
         expected_diff = home_avg_diff - away_avg_diff
