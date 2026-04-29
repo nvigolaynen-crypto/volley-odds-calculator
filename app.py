@@ -5,7 +5,6 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
-# Инициализация состояния
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
@@ -41,26 +40,22 @@ if st.session_state.df_teams is not None:
         home_stats = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
         away_stats = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
 
-        # Парсим сеты и очки
         home_sets_w, home_sets_l = map(int, home_stats['Сеты'].split(':'))
         away_sets_w, away_sets_l = map(int, away_stats['Сеты'].split(':'))
         home_pts_w, home_pts_l = map(int, home_stats['Мячи'].split(':'))
         away_pts_w, away_pts_l = map(int, away_stats['Мячи'].split(':'))
 
-        # Средняя разница очков за матч (всего 30 матчей)
         home_avg_diff = (home_pts_w - home_pts_l) / 30
         away_avg_diff = (away_pts_w - away_pts_l) / 30
         expected_diff = home_avg_diff - away_avg_diff
 
-        # Фора с точностью до 0.5 в пользу фаворита
         if expected_diff > 0:
-            handicap = f"{expected_diff:.1f}"
-            st.info(f"**Ожидаемая фора на матч:** +{handicap} очков в пользу {home}")
+            handicap = round(expected_diff, 1)
+            st.success(f"Фора на матч: **{handicap}** (в пользу хозяев)")
         else:
-            handicap = f"{abs(expected_diff):.1f}"
-            st.info(f"**Ожидаемая фора на матч:** +{handicap} очков в пользу {away}")
+            handicap = round(expected_diff, 1)
+            st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
 
-        # Прогноз победителя по сётам
         home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
         away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
         predicted_winner = home if home_winrate > away_winrate else away
@@ -68,6 +63,6 @@ if st.session_state.df_teams is not None:
 
         st.write(f"**Прогноз победителя по сётам:** {predicted_winner}")
         st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-        st.caption("Прогноз основан на средней статистике сезона (может отличаться от реального результата)")
+        st.caption("Прогноз основан на статистике сезона (может отличаться от реального результата)")
     else:
         st.info("Выберите две разные команды")
