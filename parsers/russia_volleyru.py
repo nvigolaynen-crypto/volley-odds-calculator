@@ -8,19 +8,22 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        # Для России объединение этапов не используется (игнорируем chk)
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """Ищет личные встречи на текущей странице или на странице 'Все игры'."""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        # Сначала пробуем на текущей странице
-        matches = self._parse_head_to_head_from_url(url, team1, team2, headers)
+        # Очищаем названия команд от возможного города в скобках
+        team1_clean = team1.split('(')[0].strip()
+        team2_clean = team2.split('(')[0].strip()
+
+        # 1. Ищем на текущей странице (предварительный этап)
+        matches = self._parse_head_to_head_from_url(url, team1_clean, team2_clean, headers)
         if matches:
             return pd.DataFrame(matches)
-        # Если не нашли, ищем ссылку на "Все игры"
+
+        # 2. Если не нашли, пробуем найти страницу "Все игры"
         resp = requests.get(url, headers=headers)
         soup = BeautifulSoup(resp.text, 'html.parser')
         allgames_link = None
@@ -29,15 +32,36 @@ class RussiaVolleyRuParser(BaseParser):
                 allgames_link = urljoin(url, link.get('href'))
                 break
         if allgames_link:
-            matches = self._parse_head_to_head_from_url(allgames_link, team1, team2, headers)
+            matches = self._parse_head_to_head_from_url(allgames_link, team1_clean, team2_clean, headers)
             if matches:
                 return pd.DataFrame(matches)
+
+        # 3. Если всё ещё нет, пробуем перебрать возможные страницы с турами (round=1..30)
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        for round_num in range(1, 31):
+            round_url = f"{base}?round={round_num}"
+            matches = self._parse_head_to_head_from_url(round_url, team1_clean, team2_clean, headers)
+            if matches:
+                return pd.DataFrame(matches)
+
         return pd.DataFrame()
 
     def _parse_head_to_head_from_url(self, url, team1, team2, headers):
-        resp = requests.get(url, headers=headers)
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+        except:
+            return []
         soup = BeautifulSoup(resp.text, 'html.parser')
+        # Ищем таблицу матчей
         matches_table = soup.find('table', class_='s-table--round')
+        if not matches_table:
+            # Возможно, таблица с классом s-table и содержит результаты
+            matches_table = soup.find('table', class_='s-table')
+            if matches_table and 's-table--round' not in matches_table.get('class', []):
+                # Это матричная таблица, не подходит
+                matches_table = None
         if not matches_table:
             return []
         matches = []
@@ -46,8 +70,8 @@ class RussiaVolleyRuParser(BaseParser):
             cells = row.find_all('td')
             if len(cells) < 6:
                 continue
-            home = cells[2].get_text(strip=True)
-            away = cells[4].get_text(strip=True)
+            home = cells[2].get_text(strip=True).split('(')[0].strip()
+            away = cells[4].get_text(strip=True).split('(')[0].strip()
             if (home == team1 and away == team2) or (home == team2 and away == team1):
                 date = cells[0].get_text(strip=True)
                 total_span = row.find('span', class_='s-table__total-score')
