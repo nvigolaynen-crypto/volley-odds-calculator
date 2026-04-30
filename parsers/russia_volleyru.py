@@ -8,10 +8,42 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        # Для России игнорируем combine_phases, всегда парсим только текущую страницу
+        # Для России ignore combine_phases – только один этап
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
+
+    def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        """Возвращает список матчей между team1 и team2."""
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        resp = requests.get(url, headers=headers)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        matches_table = soup.find('table', class_='s-table--round')
+        if not matches_table:
+            return pd.DataFrame()
+        matches = []
+        rows = matches_table.find_all('tr', class_='table-game')
+        for row in rows:
+            cells = row.find_all('td')
+            if len(cells) < 6:
+                continue
+            home = cells[2].get_text(strip=True)
+            away = cells[4].get_text(strip=True)
+            # Проверяем, что это матч между нужными командами
+            if (home == team1 and away == team2) or (home == team2 and away == team1):
+                date = cells[0].get_text(strip=True)
+                total_span = row.find('span', class_='s-table__total-score')
+                total = total_span.get_text(strip=True) if total_span else ''
+                rounds_span = row.find('span', class_='s-table__rounds-score')
+                rounds = rounds_span.get_text(strip=True) if rounds_span else ''
+                matches.append({
+                    'Дата': date,
+                    'Хозяева': home,
+                    'Гости': away,
+                    'Счёт': total,
+                    'Партии': rounds
+                })
+        return pd.DataFrame(matches)
 
     def _fetch_single_phase(self, url: str):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
