@@ -32,24 +32,25 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        # Очищаем названия команд (удаляем возможные лишние пробелы)
+        """Ищет личные встречи на странице CompetitionMatches.aspx."""
+        # Очищаем названия команд
         team1 = team1.strip()
         team2 = team2.strip()
 
-        # Формируем URL страницы матчей CompetitionMatches.aspx
         parsed = urlparse(url)
         query_params = parse_qs(parsed.query)
         competition_id = query_params.get('ID', [None])[0]
         phase_id = query_params.get('PID', [None])[0]
+
         if not competition_id:
             return pd.DataFrame()
 
-        # Пробуем несколько вариантов построения URL
+        # Формируем URL страницы матчей (с PID и без)
         base_path = parsed.path.replace('CompetitionStandings.aspx', 'CompetitionMatches.aspx')
         if base_path == parsed.path:
             base_path = "/CompetitionMatches.aspx"
 
-        # Вариант 1: с ID и PID
+        # Вариант 1: с PID
         query1 = {}
         if competition_id:
             query1['ID'] = competition_id
@@ -57,7 +58,7 @@ class DataProjectParser(BaseParser):
             query1['PID'] = phase_id
         matches_url1 = urlunparse((parsed.scheme, parsed.netloc, base_path, '', urlencode(query1), ''))
 
-        # Вариант 2: только с ID (без PID)
+        # Вариант 2: без PID
         query2 = {'ID': competition_id}
         matches_url2 = urlunparse((parsed.scheme, parsed.netloc, base_path, '', urlencode(query2), ''))
 
@@ -73,18 +74,19 @@ class DataProjectParser(BaseParser):
                     head_to_head = self._extract_head_to_head(matches_table, team1, team2)
                     if head_to_head:
                         return pd.DataFrame(head_to_head)
-            except:
+            except Exception as e:
+                print(f"Ошибка при загрузке {matches_url}: {e}")
                 continue
 
         return pd.DataFrame()
 
     def _find_matches_table(self, soup):
-        # Ищем таблицу с матчами по разным классам
+        # Ищем таблицу матчей по разным классам
         for selector in ['table.rgMasterTable', 'table.RadGrid', 'table.rgDataTable', 'table.rgTable']:
             table = soup.select_one(selector)
             if table:
                 return table
-        # Если ничего не нашли, ищем любую таблицу, содержащую слова "Date", "Team", "Score"
+        # Если ничего не нашли, ищем любую таблицу, содержащую ключевые слова
         for table in soup.find_all('table'):
             if table.find('th') and any(term in table.get_text() for term in ['Date', 'Team', 'Score', 'Result']):
                 return table
@@ -100,20 +102,19 @@ class DataProjectParser(BaseParser):
             if len(cells) < 5:
                 continue
             try:
-                # Ячейки могут быть в разном порядке, но обычно: дата, время, команда1, команда2, счёт
-                # Объединяем дату и время если они в разных ячейках
+                # Объединяем дату и время, если они в разных колонках
                 date = cells[0].get_text(strip=True)
                 if len(cells) > 5 and cells[1].get_text(strip=True).replace(':', '').isdigit():
                     time = cells[1].get_text(strip=True)
                     date = f"{date} {time}"
-                home = cells[2].get_text(strip=True)
-                away = cells[3].get_text(strip=True)
+                home_team = cells[2].get_text(strip=True)
+                away_team = cells[3].get_text(strip=True)
                 score = cells[4].get_text(strip=True)
-                if (home == team1 and away == team2) or (home == team2 and away == team1):
+                if (home_team == team1 and away_team == team2) or (home_team == team2 and away_team == team1):
                     head_to_head.append({
                         'Дата': date,
-                        'Хозяева': home,
-                        'Гости': away,
+                        'Хозяева': home_team,
+                        'Гости': away_team,
                         'Счёт': score
                     })
             except IndexError:
@@ -159,7 +160,6 @@ class DataProjectParser(BaseParser):
                     points_won = int(p_w.get_text(strip=True))
                     points_lost = int(p_l.get_text(strip=True))
                 except: pass
-
             if sets_won == 0 and len(cells) >= 6:
                 for i in range(1, len(cells)-1):
                     if cells[i].get_text(strip=True).isdigit() and cells[i+1].get_text(strip=True).isdigit():
@@ -172,10 +172,8 @@ class DataProjectParser(BaseParser):
                         points_lost = int(cells[i+1].get_text(strip=True))
                         break
                     except: pass
-
             if sets_won == 0 and sets_lost == 0:
                 continue
-
             stats[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
