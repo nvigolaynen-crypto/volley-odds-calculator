@@ -32,6 +32,10 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        # Очищаем названия команд (удаляем возможные лишние пробелы)
+        team1 = team1.strip()
+        team2 = team2.strip()
+
         # Формируем URL страницы матчей CompetitionMatches.aspx
         parsed = urlparse(url)
         query_params = parse_qs(parsed.query)
@@ -40,38 +44,68 @@ class DataProjectParser(BaseParser):
         if not competition_id:
             return pd.DataFrame()
 
+        # Пробуем несколько вариантов построения URL
         base_path = parsed.path.replace('CompetitionStandings.aspx', 'CompetitionMatches.aspx')
         if base_path == parsed.path:
             base_path = "/CompetitionMatches.aspx"
 
-        new_query = {}
+        # Вариант 1: с ID и PID
+        query1 = {}
         if competition_id:
-            new_query['ID'] = competition_id
+            query1['ID'] = competition_id
         if phase_id:
-            new_query['PID'] = phase_id
+            query1['PID'] = phase_id
+        matches_url1 = urlunparse((parsed.scheme, parsed.netloc, base_path, '', urlencode(query1), ''))
 
-        matches_url = urlunparse((parsed.scheme, parsed.netloc, base_path, '', urlencode(new_query), ''))
+        # Вариант 2: только с ID (без PID)
+        query2 = {'ID': competition_id}
+        matches_url2 = urlunparse((parsed.scheme, parsed.netloc, base_path, '', urlencode(query2), ''))
 
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(matches_url, headers=headers)
-        soup = BeautifulSoup(resp.text, 'html.parser')
 
-        matches_table = soup.find('table', class_='rgMasterTable')
-        if not matches_table:
-            matches_table = soup.find('table', class_='RadGrid')
-        if not matches_table:
-            return pd.DataFrame()
+        for matches_url in [matches_url1, matches_url2]:
+            try:
+                resp = requests.get(matches_url, headers=headers, timeout=10)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                matches_table = self._find_matches_table(soup)
+                if matches_table:
+                    head_to_head = self._extract_head_to_head(matches_table, team1, team2)
+                    if head_to_head:
+                        return pd.DataFrame(head_to_head)
+            except:
+                continue
 
-        rows = matches_table.find_all('tr', class_='rgRow') + matches_table.find_all('tr', class_='rgAltRow')
+        return pd.DataFrame()
+
+    def _find_matches_table(self, soup):
+        # Ищем таблицу с матчами по разным классам
+        for selector in ['table.rgMasterTable', 'table.RadGrid', 'table.rgDataTable', 'table.rgTable']:
+            table = soup.select_one(selector)
+            if table:
+                return table
+        # Если ничего не нашли, ищем любую таблицу, содержащую слова "Date", "Team", "Score"
+        for table in soup.find_all('table'):
+            if table.find('th') and any(term in table.get_text() for term in ['Date', 'Team', 'Score', 'Result']):
+                return table
+        return None
+
+    def _extract_head_to_head(self, table, team1, team2):
+        rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
+        if not rows:
+            rows = table.find_all('tr')[1:]  # пропускаем заголовок
         head_to_head = []
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
             try:
-                date_cell = cells[0].get_text(strip=True)
-                # дата может быть вида "30.04.2026 19:00" – берём всё
-                date = date_cell
+                # Ячейки могут быть в разном порядке, но обычно: дата, время, команда1, команда2, счёт
+                # Объединяем дату и время если они в разных ячейках
+                date = cells[0].get_text(strip=True)
+                if len(cells) > 5 and cells[1].get_text(strip=True).replace(':', '').isdigit():
+                    time = cells[1].get_text(strip=True)
+                    date = f"{date} {time}"
                 home = cells[2].get_text(strip=True)
                 away = cells[3].get_text(strip=True)
                 score = cells[4].get_text(strip=True)
@@ -84,7 +118,7 @@ class DataProjectParser(BaseParser):
                     })
             except IndexError:
                 continue
-        return pd.DataFrame(head_to_head)
+        return head_to_head
 
     def _parse_standings_from_container(self, container):
         table = container.find('table', class_='RG_Standing_Main')
