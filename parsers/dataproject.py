@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 import pandas as pd
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 from .base_parser import BaseParser
 
 class DataProjectParser(BaseParser):
@@ -32,40 +32,32 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """Ищет страницу матчей (CompetitionMatches.aspx) и парсит матчи между team1 и team2."""
+        """Формирует URL страницы матчей (CompetitionMatches.aspx) и парсит личные встречи."""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        # Пытаемся найти ссылку на страницу матчей
+        # Заменяем CompetitionStandings.aspx на CompetitionMatches.aspx, сохраняя параметры
         parsed = urlparse(url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        # Ищем в главном меню ссылку на "Matches" или "CompetitionMatches.aspx"
-        matches_url = None
-        resp = requests.get(url, headers=headers)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        for link in soup.find_all('a', href=True):
-            href = link.get('href')
-            if 'CompetitionMatches.aspx' in href or 'Matches' in link.get_text():
-                matches_url = urljoin(base, href)
-                break
-        if not matches_url:
-            # Если не нашли, пробуем подставить стандартный URL
-            # Обычно он строится как CompetitionMatches.aspx?ID=...&PID=...
-            # Извлечём ID и PID из текущего URL
-            import re
-            id_match = re.search(r'ID=(\d+)', url)
-            pid_match = re.search(r'PID=(\d+)', url)
-            if id_match:
-                base_match = f"{base}/CompetitionMatches.aspx?ID={id_match.group(1)}"
-                if pid_match:
-                    base_match += f"&PID={pid_match.group(1)}"
-                matches_url = base_match
-        if not matches_url:
-            return pd.DataFrame()
+        path = parsed.path
+        # Заменяем последний сегмент
+        new_path = path.replace('CompetitionStandings.aspx', 'CompetitionMatches.aspx')
+        if new_path == path:
+            # Если не нашли, пробуем добавить в начало
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            new_path = "/CompetitionMatches.aspx"
+            # Сохраняем параметры
+            query = parse_qs(parsed.query)
+            new_query = urlencode(query, doseq=True)
+            matches_url = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, new_query, parsed.fragment))
+        else:
+            matches_url = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
 
         # Получаем страницу матчей
-        resp_matches = requests.get(matches_url, headers=headers)
-        soup_m = BeautifulSoup(resp_matches.text, 'html.parser')
-        # Ищем таблицу матчей (обычно RadGrid с классом rgMasterTable)
-        matches_table = soup_m.find('table', class_='rgMasterTable')
+        resp = requests.get(matches_url, headers=headers)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        # Ищем таблицу матчей (RadGrid)
+        matches_table = soup.find('table', class_='rgMasterTable')
+        if not matches_table:
+            # Пробуем другую таблицу
+            matches_table = soup.find('table', class_='RadGrid')
         if not matches_table:
             return pd.DataFrame()
         rows = matches_table.find_all('tr', class_='rgRow') + matches_table.find_all('tr', class_='rgAltRow')
@@ -74,17 +66,19 @@ class DataProjectParser(BaseParser):
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
-            # Клетки: дата, время, команда1, команда2, счёт, статистика
+            # Дата - первая ячейка
+            date = cells[0].get_text(strip=True)
+            # Команды могут быть в 3-й и 4-й ячейках (индексы 2 и 3)
             home = cells[2].get_text(strip=True)
             away = cells[3].get_text(strip=True)
+            # Счёт в 5-й ячейке (индекс 4)
+            score = cells[4].get_text(strip=True)
             if (home == team1 and away == team2) or (home == team2 and away == team1):
-                date = cells[0].get_text(strip=True)
-                score_cell = cells[4].get_text(strip=True)
                 head_to_head.append({
                     'Дата': date,
                     'Хозяева': home,
                     'Гости': away,
-                    'Счёт': score_cell
+                    'Счёт': score
                 })
         return pd.DataFrame(head_to_head)
 
