@@ -22,13 +22,18 @@ url = st.text_input(
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
-combine_phases = st.checkbox("складывать все этапы", value=False)
+# Чекбокс: для России он не влияет, для Data Project — включает суммирование этапов
+combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
 if st.button("Парсить") and url:
     with st.spinner("Загрузка данных..."):
         try:
             parser = get_parser(url)
-            df, _ = parser.fetch_stats(url, combine_phases=combine_phases)
+            # Для volley.ru чекбокс игнорируем (всегда False)
+            if "volley.ru" in url:
+                df, _ = parser.fetch_stats(url, combine_phases=False)
+            else:
+                df, _ = parser.fetch_stats(url, combine_phases=combine_phases)
             st.session_state.df_teams = df
             st.success("Данные загружены")
         except Exception as e:
