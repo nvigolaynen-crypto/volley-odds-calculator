@@ -3,6 +3,9 @@ import pandas as pd
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
+# ------------------------------------------------------------
+# Функция определения парсера по URL
+# ------------------------------------------------------------
 def get_parser(url: str):
     if "volley.ru" in url:
         return RussiaVolleyRuParser()
@@ -11,19 +14,28 @@ def get_parser(url: str):
     else:
         raise ValueError("URL не поддерживается. Используйте volley.ru или dataproject.com")
 
+# ------------------------------------------------------------
+# Настройка страницы Streamlit
+# ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
+# Инициализация состояния сессии
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
+# ------------------------------------------------------------
+# Боковая панель / ввод данных
+# ------------------------------------------------------------
 url = st.text_input(
     "Введите URL страницы с результатами (таблица, standings)",
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
+# Чекбокс для объединения этапов (только для Data Project)
 combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
+# Кнопка запуска парсинга
 if st.button("Парсить") and url:
     with st.spinner("Загрузка данных..."):
         try:
@@ -34,6 +46,9 @@ if st.button("Парсить") and url:
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
+# ------------------------------------------------------------
+# Отображение статистики и прогноза
+# ------------------------------------------------------------
 if st.session_state.df_teams is not None:
     teams = st.session_state.df_teams['Команда'].tolist()
     if not teams:
@@ -41,6 +56,8 @@ if st.session_state.df_teams is not None:
     else:
         st.divider()
         st.subheader("📊 Прогноз на матч")
+
+        # Выбор домашней и гостевой команды
         col1, col2 = st.columns(2)
         with col1:
             home = st.selectbox("Домашняя команда", teams)
@@ -51,19 +68,20 @@ if st.session_state.df_teams is not None:
             away_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             st.caption(f"Сеты: {away_data['Сеты']} | Мячи: {away_data['Мячи']}")
 
+        # Если выбраны две разные команды
         if home and away and home != away:
+            # Извлечение числовых данных
             try:
                 home_sets_w, home_sets_l = map(int, home_data['Сеты'].split(':'))
                 away_sets_w, away_sets_l = map(int, away_data['Сеты'].split(':'))
                 home_pts_w, home_pts_l = map(int, home_data['Мячи'].split(':'))
                 away_pts_w, away_pts_l = map(int, away_data['Мячи'].split(':'))
-            except:
-                st.error("Ошибка формата данных")
+            except Exception as e:
+                st.error(f"Ошибка формата данных: {e}")
                 st.stop()
 
-            total_matches = (home_sets_w + home_sets_l) // 3
-            if total_matches == 0:
-                total_matches = 30
+            # Расчёт форы (разница очков за матч)
+            total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
             home_avg_diff = (home_pts_w - home_pts_l) / total_matches
             away_avg_diff = (away_pts_w - away_pts_l) / total_matches
             expected_diff = home_avg_diff - away_avg_diff
@@ -74,6 +92,7 @@ if st.session_state.df_teams is not None:
             elif handicap < 0:
                 st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
 
+            # Прогноз победителя по сетам
             home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
             away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
             predicted_winner = home if home_winrate > away_winrate else away
@@ -83,11 +102,13 @@ if st.session_state.df_teams is not None:
             st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
             st.caption("Прогноз основан на статистике сезона (может отличаться)")
 
+            # Чекбокс для личных встреч
             st.divider()
             if st.checkbox("Показать личные встречи"):
                 with st.spinner("Загрузка личных встреч..."):
                     try:
                         parser = get_parser(url)
+                        # Вызываем метод, который парсит встречи между выбранными командами
                         h2h_df = parser.fetch_head_to_head(url, home, away)
                         if not h2h_df.empty:
                             st.subheader(f"История встреч: {home} – {away}")
