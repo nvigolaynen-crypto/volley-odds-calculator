@@ -19,10 +19,72 @@ class RussiaVolleyRuParser(BaseParser):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         resp = requests.get(url, headers=headers)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        matrix_table = soup.find('table', class_='s-table')
-        if not matrix_table or 's-table--round' in matrix_table.get('class', []):
-            raise ValueError("Не найдена матричная таблица")
-        return self._parse_matrix_table(matrix_table)
+        
+        # Используем детальную таблицу матчей (s-table--round)
+        matches_table = soup.find('table', class_='s-table--round')
+        if not matches_table:
+            raise ValueError("Не найдена таблица с детальными результатами матчей")
+        
+        stats = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
+        
+        rows = matches_table.find_all('tr', class_='table-game')
+        for row in rows:
+            cells = row.find_all('td')
+            if len(cells) < 6:
+                continue
+            home = cells[2].get_text(strip=True)
+            away = cells[4].get_text(strip=True)
+            total_span = row.find('span', class_='s-table__total-score')
+            if not total_span:
+                continue
+            total_text = total_span.get_text(strip=True)
+            sets_match = re.search(r'(\d+):(\d+)', total_text)
+            if not sets_match:
+                continue
+            home_sets, away_sets = map(int, sets_match.groups())
+            stats[home]['sets_won'] += home_sets
+            stats[home]['sets_lost'] += away_sets
+            stats[away]['sets_won'] += away_sets
+            stats[away]['sets_lost'] += home_sets
+            
+            rounds_span = row.find('span', class_='s-table__rounds-score')
+            if rounds_span:
+                rounds_text = rounds_span.get_text(strip=True)
+                pairs = re.findall(r'(\d+):(\d+)', rounds_text)
+                home_pts = sum(int(p[0]) for p in pairs)
+                away_pts = sum(int(p[1]) for p in pairs)
+                stats[home]['points_won'] += home_pts
+                stats[home]['points_lost'] += away_pts
+                stats[away]['points_won'] += away_pts
+                stats[away]['points_lost'] += home_pts
+        
+        # Если очки не найдены, берём их из матричной таблицы (data-balls)
+        if not any(v['points_won'] > 0 for v in stats.values()):
+            matrix_table = soup.find('table', class_='s-table')
+            if matrix_table and 's-table--round' not in matrix_table.get('class', []):
+                points_data = self._extract_points_from_matrix(matrix_table)
+                for team, (pw, pl) in points_data.items():
+                    if team in stats:
+                        stats[team]['points_won'] = pw
+                        stats[team]['points_lost'] = pl
+                    else:
+                        stats[team] = {'sets_won': 0, 'sets_lost': 0, 'points_won': pw, 'points_lost': pl}
+        return stats
+
+    def _extract_points_from_matrix(self, matrix_table):
+        points = {}
+        tbody = matrix_table.find('tbody')
+        for row in tbody.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 2:
+                continue
+            team = cells[0].get_text(strip=True).split('(')[0].strip()
+            last_cell = cells[-1]
+            balls = last_cell.get('data-balls')
+            if balls and ':' in balls:
+                pw, pl = map(int, balls.split(':'))
+                points[team] = (pw, pl)
+        return points
 
     def _fetch_all_phases(self, start_url: str):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -36,7 +98,6 @@ class RussiaVolleyRuParser(BaseParser):
             if href and name not in ['Все игры', 'Положение', 'Фотографии', 'Статистика']:
                 phase_urls.append(urljoin(start_url, href))
         phase_urls = list(dict.fromkeys(phase_urls))
-
         combined = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
         for phase_url in phase_urls:
             phase_stats = self._fetch_single_phase(phase_url)
@@ -46,84 +107,6 @@ class RussiaVolleyRuParser(BaseParser):
                 combined[team]['points_won'] += data['points_won']
                 combined[team]['points_lost'] += data['points_lost']
         return combined
-
-    def _parse_matrix_table(self, table):
-        thead = table.find('thead')
-        header_row = thead.find('tr')
-        ths = header_row.find_all('th')[2:]
-        column_numbers = [int(th.get_text(strip=True)) for th in ths if th.get_text(strip=True).isdigit()]
-
-        team_by_num = {}
-        stats = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
-
-        tbody = table.find('tbody')
-        rows = tbody.find_all('tr')
-
-        # Извлекаем названия команд и итоговые очки из data-balls
-        for row in rows:
-            cells = row.find_all('td')
-            if len(cells) < 2:
-                continue
-            team_name = cells[0].get_text(strip=True).split('(')[0].strip()
-            team_num = int(cells[1].get_text(strip=True))
-            team_by_num[team_num] = team_name
-            last_cell = cells[-1]
-            balls = last_cell.get('data-balls')
-            if balls and ':' in balls:
-                pw, pl = map(int, balls.split(':'))
-                stats[team_name]['points_won'] = pw
-                stats[team_name]['points_lost'] = pl
-
-        # Извлекаем сеты – теперь ищем как <div>, так и <a>
-        for row in rows:
-            cells = row.find_all('td')
-            if len(cells) < 2:
-                continue
-            home_num = int(cells[1].get_text(strip=True))
-            home_name = team_by_num.get(home_num)
-            if not home_name:
-                continue
-            result_cells = cells[2:-5]   # пропускаем итоговые колонки
-            for col_idx, cell in enumerate(result_cells):
-                if col_idx >= len(column_numbers):
-                    break
-                away_num = column_numbers[col_idx]
-                away_name = team_by_num.get(away_num)
-                if not away_name:
-                    continue
-                # Ищем все ссылки внутри ячейки – каждая ссылка это результат одного матча
-                links = cell.find_all('a')
-                if not links:
-                    # Если нет ссылок, пробуем div
-                    divs = cell.find_all('div')
-                    links = divs
-                for link in links:
-                    score_text = link.get_text(strip=True)
-                    match = re.search(r'(\d+):(\d+)', score_text)
-                    if match:
-                        hs, aws = map(int, match.groups())
-                        # Поскольку в ячейке два матча (два круга), порядок может быть разный.
-                        # Определить хозяина и гостя сложно, но в матрице в строке home_name
-                        # первый результат – матч home vs away, второй – away vs home.
-                        # Но мы не знаем, какой из них первый. Однако для суммарной статистики
-                        # нам нужно просто добавить сеты обеим командам соответственно.
-                        # Простейший способ: добавляем всегда как home vs away, но потом второй матч
-                        # добавится как home = away. Это даст правильную сумму.
-                        stats[home_name]['sets_won'] += hs
-                        stats[home_name]['sets_lost'] += aws
-                        stats[away_name]['sets_won'] += aws
-                        stats[away_name]['sets_lost'] += hs
-                        # Для второго матча (если он есть) порядок сменится, так как второй link
-                        # будет означать матч away vs home, но мы уже учли его, так как для обоих
-                        # матчей мы добавили обе команды. Однако мы добавляем дважды, если в ячейке два матча.
-                        # Поэтому нужно обрабатывать только один матч? Нет, в ячейке два матча, и для каждого нужно добавить.
-                        # Но из-за того, что оба матча добавляются одинаково, результат будет удвоенным? Нет, потому что
-                        # во втором матче hs и aws поменяны местами. В двухматчевом круге:
-                        # матч1: home 3-1 away -> home +3, away +1
-                        # матч2: away 3-2 home -> away +3, home +2
-                        # Если мы оба раза добавим как home vs away, то получим home +3+2, away +1+3 => правильно.
-                        # Значит, можно обрабатывать все ссылки одинаково. Главное – не пропустить ни одной.
-        return stats
 
     def _make_dataframe(self, stats):
         if not stats:
