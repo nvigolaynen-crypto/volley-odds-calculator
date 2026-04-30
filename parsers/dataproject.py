@@ -28,7 +28,6 @@ class DataProjectParser(BaseParser):
         phase_urls = self._extract_phase_urls(soup, start_url)
         if not phase_urls:
             phase_urls = [start_url]
-
         combined_stats = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0,
                                               'points_won': 0, 'points_lost': 0})
         for phase_url in phase_urls:
@@ -43,24 +42,21 @@ class DataProjectParser(BaseParser):
         return combined_stats
 
     def _extract_phase_urls(self, soup, base_url):
-        """Извлекает URL всех этапов из вкладок RadTabStrip или выпадающего списка."""
         urls = set()
-        # Ищем вкладки (RadTabStrip)
+        # Ищем вкладки RadTabStrip
         tab_strip = soup.find('div', class_='RadTabStrip')
         if tab_strip:
             links = tab_strip.find_all('a', class_='rtsLink')
             for link in links:
                 href = link.get('href')
                 if href:
-                    full_url = urljoin(base_url, href)
-                    urls.add(full_url)
-        # Если не нашли, пробуем искать выпадающий список (селектор этапов)
+                    urls.add(urljoin(base_url, href))
+        # Ищем выпадающий список этапов
         phase_select = soup.find('select', {'name': re.compile(r'PhaseSelect', re.I)})
         if phase_select:
             for option in phase_select.find_all('option'):
                 value = option.get('value')
                 if value and value.isdigit():
-                    # Изменить параметр PID в URL
                     parsed = urlparse(base_url)
                     query = parse_qs(parsed.query)
                     query['PID'] = [value]
@@ -75,7 +71,6 @@ class DataProjectParser(BaseParser):
             table = soup.find('table', class_='rgMasterTable')
         if not table:
             raise ValueError("Не найдена таблица с результатами")
-
         tbody = table.find('tbody') or table
         rows = tbody.find_all('tr')
         stats = {}
@@ -91,15 +86,12 @@ class DataProjectParser(BaseParser):
                     team_name = link.get_text(strip=True)
             if not team_name:
                 continue
-
             sets_won = sets_lost = points_won = points_lost = 0
-
             # Поиск по ID
             sets_won_span = row.find('span', id='SetsWon')
             sets_lost_span = row.find('span', id='SetsLost')
             points_won_span = row.find('span', id='PuntiFatti') or row.find('span', id='PointsWon')
             points_lost_span = row.find('span', id='PuntiSubiti') or row.find('span', id='PointsLost')
-
             if sets_won_span and sets_lost_span:
                 try:
                     sets_won = int(sets_won_span.get_text(strip=True))
@@ -110,15 +102,7 @@ class DataProjectParser(BaseParser):
                     points_won = int(points_won_span.get_text(strip=True))
                     points_lost = int(points_lost_span.get_text(strip=True))
                 except: pass
-
-            # Если не нашли по id, ищем по классам
-            if sets_won == 0:
-                for span in row.find_all('span'):
-                    class_ = span.get('class', [])
-                    if any('set' in c.lower() for c in class_):
-                        # сложная логика, упростим: проще взять по индексам
-                        pass
-            # Эвристика: обычно порядок: команда, ..., сеты_выиг, сеты_проиг, очки_заб, очки_проп
+            # Если не нашли, пробуем эвристику по индексам
             if sets_won == 0 and len(cells) >= 6:
                 for i in range(1, len(cells)-1):
                     if cells[i].get_text(strip=True).isdigit() and cells[i+1].get_text(strip=True).isdigit():
@@ -131,17 +115,14 @@ class DataProjectParser(BaseParser):
                         points_lost = int(cells[i+1].get_text(strip=True))
                         break
                     except: pass
-
             if sets_won == 0 and sets_lost == 0:
                 continue
-
             stats[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
                 'points_won': points_won,
                 'points_lost': points_lost
             }
-
         if not stats:
             raise ValueError("Не удалось извлечь статистику для команд")
         return stats
