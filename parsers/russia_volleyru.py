@@ -8,22 +8,23 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
+        # Для России объединение этапов не требуется
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        """Ищет личные встречи: сначала на текущей странице, затем на странице 'Все игры'."""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        # Очищаем названия команд от возможного города в скобках
         team1_clean = team1.split('(')[0].strip()
         team2_clean = team2.split('(')[0].strip()
 
-        # 1. Ищем на текущей странице (предварительный этап)
+        # 1. Попытка найти на текущей странице
         matches = self._parse_head_to_head_from_url(url, team1_clean, team2_clean, headers)
         if matches:
             return pd.DataFrame(matches)
 
-        # 2. Если не нашли, пробуем найти страницу "Все игры"
+        # 2. Поиск ссылки на "Все игры"
         resp = requests.get(url, headers=headers)
         soup = BeautifulSoup(resp.text, 'html.parser')
         allgames_link = None
@@ -36,15 +37,6 @@ class RussiaVolleyRuParser(BaseParser):
             if matches:
                 return pd.DataFrame(matches)
 
-        # 3. Если всё ещё нет, пробуем перебрать возможные страницы с турами (round=1..30)
-        parsed = urlparse(url)
-        base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        for round_num in range(1, 31):
-            round_url = f"{base}?round={round_num}"
-            matches = self._parse_head_to_head_from_url(round_url, team1_clean, team2_clean, headers)
-            if matches:
-                return pd.DataFrame(matches)
-
         return pd.DataFrame()
 
     def _parse_head_to_head_from_url(self, url, team1, team2, headers):
@@ -54,14 +46,7 @@ class RussiaVolleyRuParser(BaseParser):
         except:
             return []
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # Ищем таблицу матчей
         matches_table = soup.find('table', class_='s-table--round')
-        if not matches_table:
-            # Возможно, таблица с классом s-table и содержит результаты
-            matches_table = soup.find('table', class_='s-table')
-            if matches_table and 's-table--round' not in matches_table.get('class', []):
-                # Это матричная таблица, не подходит
-                matches_table = None
         if not matches_table:
             return []
         matches = []
