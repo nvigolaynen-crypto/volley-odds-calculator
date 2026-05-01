@@ -15,48 +15,54 @@ class RussiaVolleyRuParser(BaseParser):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         team1_norm = self._normalize_team_name(team1)
         team2_norm = self._normalize_team_name(team2)
-        print(f"[DEBUG] Поиск личных встреч: '{team1_norm}' vs '{team2_norm}'")
+        print(f"[DEBUG] Поиск личных встреч: '{team1_norm}' vs '{team2_norm}' на {url}")
 
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            resp.raise_for_status()
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
         except Exception as e:
             print(f"[DEBUG] Ошибка загрузки: {e}")
             return pd.DataFrame()
 
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        # Ищем таблицу с матчами (s-table--round)
-        table = soup.find('table', class_='s-table--round')
-        if not table:
-            print("[DEBUG] Таблица s-table--round не найдена")
+        soup = BeautifulSoup(response.text, 'html.parser')
+        match_rows = soup.find_all('tr', class_='table-game')
+        if not match_rows:
+            table = soup.find('table', class_='s-table--round')
+            if table:
+                match_rows = table.find_all('tr')[1:]
+        if not match_rows:
+            print("[DEBUG] Таблица с матчами не найдена")
             return pd.DataFrame()
 
-        rows = table.find_all('tr', class_='table-game')
-        print(f"[DEBUG] Найдено строк: {len(rows)}")
+        print(f"[DEBUG] Найдено строк с матчами: {len(match_rows)}")
         matches = []
-        for row in rows:
+        for idx, row in enumerate(match_rows):
             cells = row.find_all('td')
             if len(cells) < 6:
                 continue
             date = cells[0].get_text(strip=True)
             home_raw = cells[2].get_text(strip=True)
             away_raw = cells[4].get_text(strip=True)
-            home_norm = self._normalize_team_name(home_raw)
-            away_norm = self._normalize_team_name(away_raw)
-            # Ячейка со счётом – обычно последняя, но может быть предпоследняя
             score_span = row.find('span', class_='s-table__total-score')
             if not score_span:
                 continue
-            score = score_span.get_text(strip=True)  # например, "3:1"
+            total = score_span.get_text(strip=True)
             rounds_span = row.find('span', class_='s-table__rounds-score')
             rounds = rounds_span.get_text(strip=True) if rounds_span else ''
-            # Сравниваем нормализованные названия
+
+            home_norm = self._normalize_team_name(home_raw)
+            away_norm = self._normalize_team_name(away_raw)
+
+            # Выводим первые 5 строк для отладки
+            if idx < 5:
+                print(f"[DEBUG] Пример {idx}: home='{home_norm}', away='{away_norm}', счёт='{total}'")
+
             if (home_norm == team1_norm and away_norm == team2_norm) or (home_norm == team2_norm and away_norm == team1_norm):
                 matches.append({
                     'Дата': date,
                     'Хозяева': home_raw,
                     'Гости': away_raw,
-                    'Счёт': score,
+                    'Счёт': total,
                     'Партии': rounds
                 })
         print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
@@ -66,9 +72,8 @@ class RussiaVolleyRuParser(BaseParser):
         # Убираем город в скобках, лишние пробелы, приводим к нижнему регистру
         name = name.split('(')[0].strip()
         name = re.sub(r'\s+', ' ', name)
-        name = name.lower()
-        # Убираем дефисы, точки, но сохраняем буквы и цифры
-        name = re.sub(r'[^a-zа-яё0-9\s]', '', name)
+        # Убираем всё кроме букв и цифр (оставляем пробелы)
+        name = re.sub(r'[^a-zа-яё0-9\s]', '', name.lower())
         return name
 
     def _fetch_single_phase(self, url: str):
