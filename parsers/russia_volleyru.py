@@ -6,60 +6,52 @@ import pandas as pd
 from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
-    # ------------------------------------------------------------
-    # Основной метод парсинга статистики (сеты и мячи)
-    # ------------------------------------------------------------
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        # Для России объединение этапов не требуется (игнорируем combine_phases)
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
-    # ------------------------------------------------------------
-    # Метод для поиска личных встреч (только на текущей странице)
-    # ------------------------------------------------------------
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """Ищет личные встречи на указанной странице матчей (без перехода на 'Все игры')."""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         team1_norm = self._normalize_team_name(team1)
         team2_norm = self._normalize_team_name(team2)
-        print(f"[DEBUG] Поиск личных встреч: {team1_norm} vs {team2_norm} на {url}")
+        print(f"[DEBUG] Поиск личных встреч: '{team1_norm}' vs '{team2_norm}'")
 
         try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
         except Exception as e:
-            print(f"[DEBUG] Ошибка загрузки страницы: {e}")
+            print(f"[DEBUG] Ошибка загрузки: {e}")
             return pd.DataFrame()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        # Ищем строки с матчами на странице (класс table-game)
-        match_rows = soup.find_all('tr', class_='table-game')
-        if not match_rows:
-            print("[DEBUG] Таблица с матчами не найдена.")
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        # Ищем таблицу с матчами (s-table--round)
+        table = soup.find('table', class_='s-table--round')
+        if not table:
+            print("[DEBUG] Таблица s-table--round не найдена")
             return pd.DataFrame()
 
-        print(f"[DEBUG] Найдено строк с матчами: {len(match_rows)}")
+        rows = table.find_all('tr', class_='table-game')
+        print(f"[DEBUG] Найдено строк: {len(rows)}")
         matches = []
-        for row in match_rows:
+        for row in rows:
             cells = row.find_all('td')
-            if len(cells) < 5:
+            if len(cells) < 6:
                 continue
             date = cells[0].get_text(strip=True)
             home_raw = cells[2].get_text(strip=True)
             away_raw = cells[4].get_text(strip=True)
-            score_cell = cells[-1].get_text(strip=True)  # последняя ячейка содержит счёт и партии
-
-            home = self._normalize_team_name(home_raw)
-            away = self._normalize_team_name(away_raw)
-
-            if (home == team1_norm and away == team2_norm) or (home == team2_norm and away == team1_norm):
-                # Извлекаем общий счёт (например, "3:1")
-                score_match = re.search(r'(\d+:\d+)', score_cell)
-                score = score_match.group(1) if score_match else ''
-                # Извлекаем партии (например, "25:20, 22:25, 25:18")
-                rounds_match = re.search(r'\((.*?)\)', score_cell)
-                rounds = rounds_match.group(1) if rounds_match else ''
+            home_norm = self._normalize_team_name(home_raw)
+            away_norm = self._normalize_team_name(away_raw)
+            # Ячейка со счётом – обычно последняя, но может быть предпоследняя
+            score_span = row.find('span', class_='s-table__total-score')
+            if not score_span:
+                continue
+            score = score_span.get_text(strip=True)  # например, "3:1"
+            rounds_span = row.find('span', class_='s-table__rounds-score')
+            rounds = rounds_span.get_text(strip=True) if rounds_span else ''
+            # Сравниваем нормализованные названия
+            if (home_norm == team1_norm and away_norm == team2_norm) or (home_norm == team2_norm and away_norm == team1_norm):
                 matches.append({
                     'Дата': date,
                     'Хозяева': home_raw,
@@ -67,15 +59,18 @@ class RussiaVolleyRuParser(BaseParser):
                     'Счёт': score,
                     'Партии': rounds
                 })
+        print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _normalize_team_name(self, name: str) -> str:
-        """Приводит название команды к нижнему регистру и удаляет город в скобках."""
-        return name.split('(')[0].strip().lower()
+        # Убираем город в скобках, лишние пробелы, приводим к нижнему регистру
+        name = name.split('(')[0].strip()
+        name = re.sub(r'\s+', ' ', name)
+        name = name.lower()
+        # Убираем дефисы, точки, но сохраняем буквы и цифры
+        name = re.sub(r'[^a-zа-яё0-9\s]', '', name)
+        return name
 
-    # ------------------------------------------------------------
-    # Вспомогательные методы для парсинга турнирной таблицы
-    # ------------------------------------------------------------
     def _fetch_single_phase(self, url: str):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         resp = requests.get(url, headers=headers)
