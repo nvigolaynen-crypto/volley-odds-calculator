@@ -27,6 +27,9 @@ class RussiaVolleyRuParser(BaseParser):
         allgames_link = self._find_allgames_link(url, headers)
         if allgames_link:
             print(f"[DEBUG] Пробуем страницу 'Все игры': {allgames_link}")
+            # Выведем часть содержимого для отладки
+            resp = requests.get(allgames_link, headers=headers)
+            print(f"[DEBUG] Начало страницы 'Все игры': {resp.text[:500]}")
             matches = self._find_matches_on_page(allgames_link, team1_norm, team2_norm, headers)
             if matches:
                 return pd.DataFrame(matches)
@@ -41,6 +44,14 @@ class RussiaVolleyRuParser(BaseParser):
             if matches:
                 return pd.DataFrame(matches)
 
+        # 4. Если таблица не найдена, пытаемся найти в тексте страницы
+        print("[DEBUG] Таблица не найдена, ищем в тексте страницы...")
+        all_text = self._get_all_text(allgames_link if allgames_link else url, headers)
+        matches = self._extract_matches_from_text(all_text, team1_norm, team2_norm)
+        if matches:
+            print(f"[DEBUG] Найдено {len(matches)} матчей в тексте страницы")
+            return pd.DataFrame(matches)
+
         print("[DEBUG] Личные встречи не найдены")
         return pd.DataFrame()
 
@@ -53,6 +64,40 @@ class RussiaVolleyRuParser(BaseParser):
                 return urljoin(url, href)
         return None
 
+    def _get_all_text(self, page_url, headers):
+        try:
+            resp = requests.get(page_url, headers=headers, timeout=10)
+            return resp.text.lower()
+        except:
+            return ""
+
+    def _extract_matches_from_text(self, text, team1, team2):
+        # Ищем шаблоны: "Зенит-Казань 3:1 Динамо" или "Зенит-Казань – Динамо 3:1"
+        patterns = [
+            rf'{team1}\s+(\d+):(\d+)\s+{team2}',
+            rf'{team2}\s+(\d+):(\d+)\s+{team1}',
+            rf'{team1}\s*[–-]\s*{team2}\s+(\d+):(\d+)',
+            rf'{team2}\s*[–-]\s*{team1}\s+(\d+):(\d+)',
+        ]
+        matches = []
+        for pattern in patterns:
+            for m in re.finditer(pattern, text):
+                score = f"{m.group(1)}:{m.group(2)}"
+                # Не можем определить хозяев, поэтому просто запишем
+                matches.append({
+                    'Дата': '—',
+                    'Хозяева': team1 if team1 in m.group(0) else team2,
+                    'Гости': team2 if team2 in m.group(0) else team1,
+                    'Счёт': score,
+                    'Партии': ''
+                })
+        # Убираем дубликаты
+        unique = []
+        for m in matches:
+            if (m['Хозяева'], m['Гости'], m['Счёт']) not in [(u['Хозяева'], u['Гости'], u['Счёт']) for u in unique]:
+                unique.append(m)
+        return unique
+
     def _find_matches_on_page(self, page_url, team1_norm, team2_norm, headers):
         try:
             resp = requests.get(page_url, headers=headers, timeout=10)
@@ -64,7 +109,6 @@ class RussiaVolleyRuParser(BaseParser):
         # Ищем таблицу матчей (s-table--round или любую с table-game)
         table = soup.find('table', class_='s-table--round')
         if not table:
-            # Ищем любую таблицу, содержащую строки с классом table-game
             tables = soup.find_all('table')
             for tbl in tables:
                 if tbl.find('tr', class_='table-game'):
@@ -76,7 +120,6 @@ class RussiaVolleyRuParser(BaseParser):
             return []
         rows = table.find_all('tr', class_='table-game')
         if not rows:
-            # Если нет строк с классом, берём все строки кроме первой (заголовок)
             rows = table.find_all('tr')[1:]
         print(f"[DEBUG] Найдено строк с матчами: {len(rows)}")
         matches = []
