@@ -32,10 +32,8 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        def normalize(name):
-            return name.strip().lower()
-        team1_norm = normalize(team1)
-        team2_norm = normalize(team2)
+        team1_norm = team1.strip().lower()
+        team2_norm = team2.strip().lower()
         print(f"[DEBUG] Поиск личных встреч: {team1_norm} vs {team2_norm}")
 
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -43,17 +41,17 @@ class DataProjectParser(BaseParser):
         competition_id = parse_qs(parsed.query).get('ID', [None])[0]
         phase_id = parse_qs(parsed.query).get('PID', [None])[0]
 
-        possible_urls = []
+        # Формируем возможные URL страницы матчей
+        urls_to_try = []
         if competition_id:
             base = f"{parsed.scheme}://{parsed.netloc}/CompetitionMatches.aspx?ID={competition_id}"
-            possible_urls.append(base)
+            urls_to_try.append(base)
             if phase_id:
-                possible_urls.append(f"{base}&PID={phase_id}")
-        # Прямой URL, если уже передан CompetitionMatches.aspx
+                urls_to_try.append(f"{base}&PID={phase_id}")
         if 'CompetitionMatches.aspx' in url:
-            possible_urls.append(url)
+            urls_to_try.append(url)
 
-        for matches_url in possible_urls:
+        for matches_url in urls_to_try:
             print(f"[DEBUG] Пробуем URL: {matches_url}")
             try:
                 resp = requests.get(matches_url, headers=headers, timeout=10)
@@ -61,6 +59,7 @@ class DataProjectParser(BaseParser):
                 if resp.status_code != 200:
                     continue
                 soup = BeautifulSoup(resp.text, 'html.parser')
+                # Ищем таблицу с матчами
                 table = self._find_matches_table(soup)
                 if not table:
                     print("[DEBUG] Таблица матчей не найдена")
@@ -72,25 +71,30 @@ class DataProjectParser(BaseParser):
             except Exception as e:
                 print(f"[DEBUG] Ошибка: {e}")
                 continue
+
         print("[DEBUG] Личные встречи не найдены")
         return pd.DataFrame()
 
     def _find_matches_table(self, soup):
+        # Пробуем найти таблицу по классам
         for selector in ['table.rgMasterTable', 'table.RadGrid', 'table.rgDataTable', 'table.rgTable']:
             table = soup.select_one(selector)
             if table:
                 return table
+        # Ищем любую таблицу, содержащую строки с классом rgRow или rgAltRow
         for table in soup.find_all('table'):
             if table.find('tr', class_='rgRow') or table.find('tr', class_='rgAltRow'):
                 return table
-            if re.search(r'\d+:\d+', table.get_text()):
+            # Если есть заголовок с колонками Date, Team, Score
+            header_row = table.find('tr')
+            if header_row and any(cell.get_text() in ['Date', 'Team', 'Score', 'Result'] for cell in header_row.find_all('th')):
                 return table
         return None
 
     def _extract_head_to_head(self, table, team1_norm, team2_norm):
         rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
         if not rows:
-            rows = table.find_all('tr')[1:]  # пропускаем заголовок
+            rows = table.find_all('tr')[1:]  # пропускаем первую строку (заголовок)
         matches = []
         for row in rows:
             cells = row.find_all('td')
@@ -98,23 +102,22 @@ class DataProjectParser(BaseParser):
                 continue
             try:
                 date = cells[0].get_text(strip=True)
-                if len(cells) > 5 and ':' in cells[1].get_text(strip()):
-                    date += " " + cells[1].get_text(strip())
-                home = cells[2].get_text(strip()).lower()
-                away = cells[3].get_text(strip()).lower()
-                score = cells[4].get_text(strip())
+                if len(cells) > 5 and ':' in cells[1].get_text(strip=True):
+                    date += " " + cells[1].get_text(strip=True)
+                home = cells[2].get_text(strip=True).lower()
+                away = cells[3].get_text(strip=True).lower()
+                score = cells[4].get_text(strip=True)
                 if (home == team1_norm and away == team2_norm) or (home == team2_norm and away == team1_norm):
                     matches.append({
                         'Дата': date,
-                        'Хозяева': cells[2].get_text(strip()),
-                        'Гости': cells[3].get_text(strip()),
+                        'Хозяева': cells[2].get_text(strip=True),
+                        'Гости': cells[3].get_text(strip=True),
                         'Счёт': score
                     })
             except IndexError:
                 continue
         return matches
 
-    # остальные методы (_parse_standings_from_container, _parse_standings_table, _make_dataframe) такие же, как в предыдущей версии
     def _parse_standings_from_container(self, container):
         table = container.find('table', class_='RG_Standing_Main')
         if not table:
