@@ -41,7 +41,6 @@ class DataProjectParser(BaseParser):
         competition_id = parse_qs(parsed.query).get('ID', [None])[0]
         phase_id = parse_qs(parsed.query).get('PID', [None])[0]
 
-        # Формируем возможные URL страницы матчей
         urls_to_try = []
         if competition_id:
             base = f"{parsed.scheme}://{parsed.netloc}/CompetitionMatches.aspx?ID={competition_id}"
@@ -58,15 +57,21 @@ class DataProjectParser(BaseParser):
                 print(f"[DEBUG] Статус: {resp.status_code}")
                 if resp.status_code != 200:
                     continue
+                # Выведем часть содержимого для отладки
+                print(f"[DEBUG] Начало страницы:\n{resp.text[:500]}")
                 soup = BeautifulSoup(resp.text, 'html.parser')
-                # Ищем таблицу с матчами
                 table = self._find_matches_table(soup)
                 if not table:
                     print("[DEBUG] Таблица матчей не найдена")
+                    # Попробуем найти матчи в тексте страницы регулярками
+                    matches = self._extract_matches_from_text(resp.text, team1_norm, team2_norm)
+                    if matches:
+                        print(f"[DEBUG] Найдено {len(matches)} матчей в тексте")
+                        return pd.DataFrame(matches)
                     continue
                 matches = self._extract_head_to_head(table, team1_norm, team2_norm)
                 if matches:
-                    print(f"[DEBUG] Найдено {len(matches)} матчей")
+                    print(f"[DEBUG] Найдено {len(matches)} матчей в таблице")
                     return pd.DataFrame(matches)
             except Exception as e:
                 print(f"[DEBUG] Ошибка: {e}")
@@ -74,6 +79,34 @@ class DataProjectParser(BaseParser):
 
         print("[DEBUG] Личные встречи не найдены")
         return pd.DataFrame()
+
+    def _extract_matches_from_text(self, text, team1, team2):
+        # Ищем паттерны: "Team1 3:1 Team2" или "Team1 – Team2 3:1"
+        patterns = [
+            rf'{team1}\s+(\d+):(\d+)\s+{team2}',
+            rf'{team2}\s+(\d+):(\d+)\s+{team1}',
+            rf'{team1}\s*[–-]\s*{team2}\s+(\d+):(\d+)',
+            rf'{team2}\s*[–-]\s*{team1}\s+(\d+):(\d+)',
+        ]
+        matches = []
+        for pattern in patterns:
+            for m in re.finditer(pattern, text, re.IGNORECASE):
+                score = f"{m.group(1)}:{m.group(2)}"
+                # Определим, кто хозяин (по первому упоминанию)
+                home = team1 if team1 in m.group(0).lower() else team2
+                away = team2 if home == team1 else team1
+                matches.append({
+                    'Дата': '—',
+                    'Хозяева': home,
+                    'Гости': away,
+                    'Счёт': score
+                })
+        # Убираем дубликаты
+        unique = []
+        for m in matches:
+            if (m['Хозяева'], m['Гости'], m['Счёт']) not in [(u['Хозяева'], u['Гости'], u['Счёт']) for u in unique]:
+                unique.append(m)
+        return unique
 
     def _find_matches_table(self, soup):
         # Пробуем найти таблицу по классам
@@ -94,7 +127,7 @@ class DataProjectParser(BaseParser):
     def _extract_head_to_head(self, table, team1_norm, team2_norm):
         rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
         if not rows:
-            rows = table.find_all('tr')[1:]  # пропускаем первую строку (заголовок)
+            rows = table.find_all('tr')[1:]
         matches = []
         for row in rows:
             cells = row.find_all('td')
