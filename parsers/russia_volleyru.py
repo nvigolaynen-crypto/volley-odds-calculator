@@ -13,30 +13,29 @@ class RussiaVolleyRuParser(BaseParser):
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        team1_norm = self._normalize_team_name(team1)
-        team2_norm = self._normalize_team_name(team2)
-        print(f"[DEBUG] Ищем: '{team1_norm}' vs '{team2_norm}' на {url}")
+        # Очищаем названия команд (убираем город в скобках)
+        def clean_name(name):
+            return name.split('(')[0].strip().lower()
+        team1_clean = clean_name(team1)
+        team2_clean = clean_name(team2)
 
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
-        except Exception as e:
-            print(f"[DEBUG] Ошибка: {e}")
+        except:
             return pd.DataFrame()
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        match_rows = soup.find_all('tr', class_='table-game')
-        if not match_rows:
+        # Находим все строки с матчами
+        rows = soup.find_all('tr', class_='table-game')
+        if not rows:
+            # Если класс не найден, ищем любые строки в таблице s-table--round
             table = soup.find('table', class_='s-table--round')
             if table:
-                match_rows = table.find_all('tr')[1:]
-        if not match_rows:
-            print("[DEBUG] Нет строк с матчами")
-            return pd.DataFrame()
+                rows = table.find_all('tr')[1:]  # пропускаем заголовок
 
-        print(f"[DEBUG] Всего строк: {len(match_rows)}")
         matches = []
-        for idx, row in enumerate(match_rows):
+        for row in rows:
             cells = row.find_all('td')
             if len(cells) < 6:
                 continue
@@ -47,11 +46,10 @@ class RussiaVolleyRuParser(BaseParser):
             if not score_span:
                 continue
             total = score_span.get_text(strip=True)
-            home_norm = self._normalize_team_name(home_raw)
-            away_norm = self._normalize_team_name(away_raw)
-            if idx < 10:
-                print(f"[DEBUG] {idx}: home='{home_norm}', away='{away_norm}', score='{total}'")
-            if (home_norm == team1_norm and away_norm == team2_norm) or (home_norm == team2_norm and away_norm == team1_norm):
+            home = clean_name(home_raw)
+            away = clean_name(away_raw)
+
+            if (home == team1_clean and away == team2_clean) or (home == team2_clean and away == team1_clean):
                 matches.append({
                     'Дата': date,
                     'Хозяева': home_raw,
@@ -59,19 +57,8 @@ class RussiaVolleyRuParser(BaseParser):
                     'Счёт': total,
                     'Партии': ''
                 })
-        print(f"[DEBUG] Найдено встреч: {len(matches)}")
         return pd.DataFrame(matches)
 
-    def _normalize_team_name(self, name: str) -> str:
-        # Удаляем город в скобках, лишние пробелы, приводим к нижнему регистру
-        name = name.split('(')[0].strip()
-        name = re.sub(r'\s+', ' ', name)
-        # Заменяем дефисы, точки и т.д. на пробелы (чтобы "Зенит-Казань" стало "зенит казань")
-        name = re.sub(r'[-–—.]', ' ', name)
-        name = re.sub(r'[^a-zа-яё0-9\s]', '', name.lower())
-        return name
-
-    # остальные методы (_fetch_single_phase, _parse_matrix_table, _make_dataframe) без изменений
     def _fetch_single_phase(self, url: str):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         resp = requests.get(url, headers=headers)
