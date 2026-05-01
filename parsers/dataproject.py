@@ -73,35 +73,37 @@ class DataProjectParser(BaseParser):
         if not rows:
             rows = table.find_all('tr')[1:]
 
+        # Регулярное выражение для счёта вида "3 - 0", "3-0", "3 : 0"
         score_pattern = re.compile(r'(\d+)\s*[-–:]\s*(\d+)')
+        # Регулярное выражение для даты текущего сезона (2025 или 2026)
+        # В португальском формате даты: "11/10/2025" – ищем год 2025 или 2026
+        date_pattern = re.compile(r'\d{2}/\d{2}/202[56]')
+
         matches = []
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
             date_cell = cells[0].get_text(strip=True)
-            # Фильтруем только матчи текущего сезона (2025 или 2026)
-            if not re.search(r'202[56]', date_cell):
+            # Фильтруем только матчи текущего сезона
+            if not date_pattern.search(date_cell):
                 continue
+            date = date_cell
             home_raw = cells[2].get_text(strip=True)
             away_raw = cells[3].get_text(strip=True)
             score_cell = cells[4].get_text(strip=True)
-            # Если в пятой ячейке нет счёта, возможно он в шестой
-            if not score_pattern.search(score_cell) and len(cells) > 5:
-                score_cell = cells[5].get_text(strip=True)
+            # Извлекаем счёт
             score_match = score_pattern.search(score_cell)
             if not score_match:
+                # Если не нашли, возможно счёт в другой ячейке (например, 5-я колонка содержит ссылку)
                 continue
             home_score, away_score = score_match.groups()
-            # Исключаем слишком большие числа (год не должен быть счётом)
-            if int(home_score) > 99 or int(away_score) > 99:
-                continue
             score = f"{home_score}:{away_score}"
             home_norm = self._normalize_team_name(home_raw)
             away_norm = self._normalize_team_name(away_raw)
             if (home_norm == team1_norm and away_norm == team2_norm) or (home_norm == team2_norm and away_norm == team1_norm):
                 matches.append({
-                    'Дата': date_cell,
+                    'Дата': date,
                     'Хозяева': home_raw,
                     'Гости': away_raw,
                     'Счёт': score
@@ -110,6 +112,7 @@ class DataProjectParser(BaseParser):
         return pd.DataFrame(matches)
 
     def _normalize_team_name(self, name: str) -> str:
+        # Приводим к нижнему регистру, удаляем лишние пробелы
         return name.strip().lower()
 
     def _parse_standings_from_container(self, container):
