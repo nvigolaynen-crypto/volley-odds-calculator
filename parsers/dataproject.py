@@ -35,10 +35,10 @@ class DataProjectParser(BaseParser):
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
         team1_norm = self._normalize_team_name(team1)
         team2_norm = self._normalize_team_name(team2)
-        print(f"[DEBUG] Поиск личных встреч: '{team1_norm}' vs '{team2_norm}'")
+        print(f"[DEBUG] Поиск: '{team1_norm}' vs '{team2_norm}'")
 
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        # Преобразуем URL standings в URL матчей
+        # Формируем URL матчей
         if 'CompetitionStandings.aspx' in url:
             parsed = urlparse(url)
             query = parse_qs(parsed.query)
@@ -53,12 +53,12 @@ class DataProjectParser(BaseParser):
         else:
             matches_url = url
 
-        print(f"[DEBUG] Загружаем страницу матчей: {matches_url}")
+        print(f"[DEBUG] Загружаем: {matches_url}")
         try:
             response = requests.get(matches_url, headers=headers, timeout=15)
             response.raise_for_status()
         except Exception as e:
-            print(f"[DEBUG] Ошибка загрузки: {e}")
+            print(f"[DEBUG] Ошибка: {e}")
             return pd.DataFrame()
 
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -66,35 +66,37 @@ class DataProjectParser(BaseParser):
         if not table:
             table = soup.find('table', class_='RadGrid')
         if not table:
-            print("[DEBUG] Таблица матчей не найдена")
+            print("[DEBUG] Таблица не найдена")
             return pd.DataFrame()
 
         rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
         if not rows:
             rows = table.find_all('tr')[1:]
 
-        score_pattern = re.compile(r'(\d+)\s*[-–:]\s*(\d+)')
+        # Регулярное выражение для счёта в формате "3 - 0" или "3:0", где числа ≤ 3 (сеты) или ≤ 25 (очки)
+        # Но для простоты будем искать два числа, разделённые дефисом/двоеточием, и проверять, что числа не являются годом
+        score_pattern = re.compile(r'(\d{1,2})\s*[-–:]\s*(\d{1,2})')
         matches = []
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
             date_cell = cells[0].get_text(strip=True)
-            # Фильтруем только матчи текущего сезона (2025 или 2026)
+            # Отбираем только даты 2025 или 2026
             if not re.search(r'202[56]', date_cell):
                 continue
             home_raw = cells[2].get_text(strip=True)
             away_raw = cells[3].get_text(strip=True)
+            # Ячейка со счётом обычно 5-я (индекс 4), но может быть 6-я
             score_cell = cells[4].get_text(strip=True)
-            # Если в пятой ячейке нет счёта, возможно он в шестой
             if not score_pattern.search(score_cell) and len(cells) > 5:
                 score_cell = cells[5].get_text(strip=True)
             score_match = score_pattern.search(score_cell)
             if not score_match:
                 continue
             home_score, away_score = score_match.groups()
-            # Исключаем слишком большие числа (год не должен быть счётом)
-            if int(home_score) > 99 or int(away_score) > 99:
+            # Если числа большие (например, 2025), пропускаем
+            if int(home_score) > 50 or int(away_score) > 50:
                 continue
             score = f"{home_score}:{away_score}"
             home_norm = self._normalize_team_name(home_raw)
@@ -106,12 +108,13 @@ class DataProjectParser(BaseParser):
                     'Гости': away_raw,
                     'Счёт': score
                 })
-        print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
+        print(f"[DEBUG] Найдено встреч: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _normalize_team_name(self, name: str) -> str:
         return name.strip().lower()
 
+    # остальные методы (_parse_standings_from_container, _parse_standings_table, _make_dataframe) без изменений
     def _parse_standings_from_container(self, container):
         table = container.find('table', class_='RG_Standing_Main')
         if not table:
