@@ -9,7 +9,7 @@ def get_parser(url: str):
     elif "dataproject.com" in url:
         return DataProjectParser()
     else:
-        raise ValueError("URL не поддерживается")
+        raise ValueError("URL не поддерживается. Используйте volley.ru или dataproject.com")
 
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
@@ -87,15 +87,7 @@ if st.session_state.df_teams is not None:
                 with st.spinner("Загрузка личных встреч..."):
                     try:
                         parser = get_parser(url)
-                        # Временно перехватываем вывод print для отображения в интерфейсе
-                        import io, sys
-                        old_stdout = sys.stdout
-                        sys.stdout = io.StringIO()
                         h2h_df = parser.fetch_head_to_head(url, home, away)
-                        debug_output = sys.stdout.getvalue()
-                        sys.stdout = old_stdout
-                        if debug_output:
-                            st.text("Отладочная информация:\n" + debug_output)
                         if not h2h_df.empty:
                             st.subheader(f"История встреч: {home} – {away}")
                             st.dataframe(h2h_df)
