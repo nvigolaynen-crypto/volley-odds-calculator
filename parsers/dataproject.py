@@ -62,7 +62,6 @@ class DataProjectParser(BaseParser):
             return pd.DataFrame()
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Ищем таблицу матчей (обычно rgMasterTable)
         table = soup.find('table', class_='rgMasterTable')
         if not table:
             table = soup.find('table', class_='RadGrid')
@@ -72,31 +71,37 @@ class DataProjectParser(BaseParser):
 
         rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
         if not rows:
-            # Если нет таких классов, берём все строки, кроме заголовка
             rows = table.find_all('tr')[1:]
 
+        score_pattern = re.compile(r'(\d+)\s*[-–:]\s*(\d+)')
         matches = []
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
-            # Дата – первая ячейка
-            date = cells[0].get_text(strip=True)
-            # Команды – третья и четвёртая ячейки (индексы 2 и 3)
+            date_cell = cells[0].get_text(strip=True)
+            # Фильтруем только матчи текущего сезона (2025 или 2026)
+            if not re.search(r'202[56]', date_cell):
+                continue
             home_raw = cells[2].get_text(strip=True)
             away_raw = cells[3].get_text(strip=True)
-            # Счёт – пятая ячейка (индекс 4), обычно вида "3:0" или "3-0"
-            score_raw = cells[4].get_text(strip=True)
-            # Очищаем счёт от лишних символов, оставляем только цифры и ":"
-            score_match = re.search(r'(\d+)[-:](\d+)', score_raw)
+            score_cell = cells[4].get_text(strip=True)
+            # Если в пятой ячейке нет счёта, возможно он в шестой
+            if not score_pattern.search(score_cell) and len(cells) > 5:
+                score_cell = cells[5].get_text(strip=True)
+            score_match = score_pattern.search(score_cell)
             if not score_match:
                 continue
-            score = f"{score_match.group(1)}:{score_match.group(2)}"
+            home_score, away_score = score_match.groups()
+            # Исключаем слишком большие числа (год не должен быть счётом)
+            if int(home_score) > 99 or int(away_score) > 99:
+                continue
+            score = f"{home_score}:{away_score}"
             home_norm = self._normalize_team_name(home_raw)
             away_norm = self._normalize_team_name(away_raw)
             if (home_norm == team1_norm and away_norm == team2_norm) or (home_norm == team2_norm and away_norm == team1_norm):
                 matches.append({
-                    'Дата': date,
+                    'Дата': date_cell,
                     'Хозяева': home_raw,
                     'Гости': away_raw,
                     'Счёт': score
@@ -105,13 +110,8 @@ class DataProjectParser(BaseParser):
         return pd.DataFrame(matches)
 
     def _normalize_team_name(self, name: str) -> str:
-        # Удаляем лишние пробелы и приводим к нижнему регистру
-        name = name.strip().lower()
-        # Убираем точки, дефисы и другие символы, оставляем буквы, цифры и пробелы
-        name = re.sub(r'[^a-z0-9\s]', '', name)
-        return name
+        return name.strip().lower()
 
-    # Остальные методы (_parse_standings_from_container и т.д.) остаются без изменений
     def _parse_standings_from_container(self, container):
         table = container.find('table', class_='RG_Standing_Main')
         if not table:
