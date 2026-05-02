@@ -3,7 +3,6 @@ import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 import pandas as pd
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from .base_parser import BaseParser
 
 class DataProjectParser(BaseParser):
@@ -33,76 +32,63 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        team1_norm = team1.strip().lower()
-        team2_norm = team2.strip().lower()
-        print(f"[DEBUG] Поиск личных встреч: '{team1_norm}' vs '{team2_norm}'")
+        """
+        Ищет личные встречи прямо на странице CompetitionStandings.aspx,
+        используя регулярные выражения для поиска текста матчей.
+        """
+        team1_clean = team1.strip().lower()
+        team2_clean = team2.strip().lower()
+        print(f"[DEBUG] Поиск личных встреч: {team1_clean} vs {team2_clean}")
 
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        # --- Формируем URL страницы матчей (CompetitionMatches.aspx) ---
-        parsed = urlparse(url)
-        query = parse_qs(parsed.query)
-        comp_id = query.get('ID', [None])[0]
-        phase_id = query.get('PID', [None])[0]
-        if comp_id:
-            matches_url = f"{parsed.scheme}://{parsed.netloc}/CompetitionMatches.aspx?ID={comp_id}"
-            if phase_id:
-                matches_url += f"&PID={phase_id}"
-        else:
-            matches_url = url
-
-        print(f"[DEBUG] Загружаем страницу матчей: {matches_url}")
         try:
-            resp = requests.get(matches_url, headers=headers, timeout=15)
+            resp = requests.get(url, headers=headers, timeout=15)
             resp.raise_for_status()
         except Exception as e:
-            print(f"[DEBUG] Ошибка загрузки: {e}")
+            print(f"[DEBUG] Ошибка: {e}")
             return pd.DataFrame()
 
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        # Ищем таблицу матчей (rgMasterTable, RadGrid)
-        table = soup.find('table', class_='rgMasterTable')
-        if not table:
-            table = soup.find('table', class_='RadGrid')
-        if not table:
-            print("[DEBUG] Таблица матчей не найдена")
-            return pd.DataFrame()
+        html = resp.text
+        # Ищем строки, содержащие дату, команды и счёт
+        # Пример: "11/10/2025 16:00 FC Porto 3 - 0 Clube Kairós"
+        pattern = re.compile(
+            r'(\d{2}/\d{2}/\d{4}).*?(' + re.escape(team1_clean) + r').*?(' + re.escape(team2_clean) + r').*?(\d+)\s*[-–:]\s*(\d+)',
+            re.DOTALL | re.IGNORECASE
+        )
+        alt_pattern = re.compile(
+            r'(\d{2}/\d{2}/\d{4}).*?(' + re.escape(team2_clean) + r').*?(' + re.escape(team1_clean) + r').*?(\d+)\s*[-–:]\s*(\d+)',
+            re.DOTALL | re.IGNORECASE
+        )
 
-        rows = table.find_all('tr', class_='rgRow') + table.find_all('tr', class_='rgAltRow')
-        if not rows:
-            rows = table.find_all('tr')[1:]  # пропускаем заголовок
-
-        score_pattern = re.compile(r'(\d+)\s*[-–:]\s*(\d+)')
         matches = []
-        for row in rows:
-            cells = row.find_all('td')
-            if len(cells) < 5:
-                continue
-            date_cell = cells[0].get_text(strip=True)
-            if not re.search(r'202[56]', date_cell):
-                continue
-            home_raw = cells[2].get_text(strip=True)
-            away_raw = cells[3].get_text(strip=True)
-            score_cell = cells[4].get_text(strip=True)
-            if not score_pattern.search(score_cell) and len(cells) > 5:
-                score_cell = cells[5].get_text(strip=True)
-            score_match = score_pattern.search(score_cell)
-            if not score_match:
-                continue
-            home_score, away_score = score_match.groups()
-            if int(home_score) > 99 or int(away_score) > 99:
-                continue
-            score = f"{home_score}:{away_score}"
-            home_clean = home_raw.strip().lower()
-            away_clean = away_raw.strip().lower()
-            if (home_clean == team1_norm and away_clean == team2_norm) or (home_clean == team2_norm and away_clean == team1_norm):
-                matches.append({
-                    'Дата': date_cell,
-                    'Хозяева': home_raw,
-                    'Гости': away_raw,
-                    'Счёт': score
-                })
-        print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
-        return pd.DataFrame(matches)
+        for match in pattern.finditer(html):
+            date, home, away, home_score, away_score = match.groups()
+            matches.append({
+                'Дата': date,
+                'Хозяева': home,
+                'Гости': away,
+                'Счёт': f"{home_score}:{away_score}"
+            })
+        for match in alt_pattern.finditer(html):
+            date, away, home, away_score, home_score = match.groups()
+            matches.append({
+                'Дата': date,
+                'Хозяева': home,
+                'Гости': away,
+                'Счёт': f"{home_score}:{away_score}"
+            })
+
+        # Удаляем дубликаты (если один матч найден дважды)
+        seen = set()
+        unique = []
+        for m in matches:
+            key = (m['Дата'], m['Хозяева'], m['Гости'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(m)
+
+        print(f"[DEBUG] Найдено встреч: {len(unique)}")
+        return pd.DataFrame(unique)
 
     def _parse_standings_from_container(self, container):
         table = container.find('table', class_='RG_Standing_Main')
