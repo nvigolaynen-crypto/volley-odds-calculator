@@ -12,31 +12,50 @@ class RussiaVolleyRuParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        """
+        Ищет личные встречи на странице 'Все игры'.
+        Преобразует URL из .../predvaritelnyy в .../allgames
+        """
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        # Очистка названий (убираем город в скобках, приводим к нижнему регистру)
         def clean(name):
             return name.split('(')[0].strip().lower()
         team1_clean = clean(team1)
         team2_clean = clean(team2)
-        print(f"[DEBUG] Поиск личных встреч: '{team1_clean}' vs '{team2_clean}' на {url}")
+        print(f"[DEBUG] Поиск: {team1_clean} vs {team2_clean}")
 
+        # Формируем URL страницы "Все игры"
+        allgames_url = url.replace('predvaritelnyy', 'allgames')
+        if 'predvaritelnyy' not in url:
+            # Если URL не предварительный, пробуем найти ссылку на allgames
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                for link in soup.find_all('a', href=True):
+                    if 'allgames' in link.get('href'):
+                        allgames_url = link.get('href')
+                        if not allgames_url.startswith('http'):
+                            allgames_url = 'https://volley.ru' + allgames_url
+                        break
+            except:
+                pass
+
+        print(f"[DEBUG] Загружаем: {allgames_url}")
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
+            resp = requests.get(allgames_url, headers=headers, timeout=10)
             resp.raise_for_status()
         except Exception as e:
-            print(f"[DEBUG] Ошибка загрузки: {e}")
+            print(f"[DEBUG] Ошибка: {e}")
             return pd.DataFrame()
 
         soup = BeautifulSoup(resp.text, 'html.parser')
-        rows = soup.find_all('tr', class_='table-game')
-        if not rows:
-            table = soup.find('table', class_='s-table--round')
-            if table:
-                rows = table.find_all('tr')[1:]
-        if not rows:
-            print("[DEBUG] Таблица матчей не найдена")
+        # Таблица матчей имеет класс s-table--round
+        table = soup.find('table', class_='s-table--round')
+        if not table:
+            print("[DEBUG] Таблица s-table--round не найдена")
             return pd.DataFrame()
 
-        print(f"[DEBUG] Найдено строк с матчами: {len(rows)}")
+        rows = table.find_all('tr', class_='table-game')
         matches = []
         for row in rows:
             cells = row.find_all('td')
@@ -52,18 +71,14 @@ class RussiaVolleyRuParser(BaseParser):
             home_clean = clean(home_raw)
             away_clean = clean(away_raw)
 
-            if len(matches) < 5:
-                print(f"[DEBUG] Пример: home='{home_clean}', away='{away_clean}', счёт='{total}'")
-
             if (home_clean == team1_clean and away_clean == team2_clean) or (home_clean == team2_clean and away_clean == team1_clean):
                 matches.append({
                     'Дата': date,
                     'Хозяева': home_raw,
                     'Гости': away_raw,
                     'Счёт': total,
-                    'Партии': ''
                 })
-        print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
+        print(f"[DEBUG] Найдено встреч: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _fetch_single_phase(self, url: str):
@@ -110,5 +125,4 @@ class RussiaVolleyRuParser(BaseParser):
         df = df.reset_index().rename(columns={'index': 'Команда'})
         df['Сеты'] = df['sets_won'].astype(str) + ':' + df['sets_lost'].astype(str)
         df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
-        df = df.sort_values('sets_won', ascending=False)
-        return df[['Команда', 'Сеты', 'Мячи']]
+        return df.sort_values('sets_won', ascending=False)[['Команда', 'Сеты', 'Мячи']]
