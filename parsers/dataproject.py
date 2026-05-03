@@ -7,7 +7,7 @@ from .base_parser import BaseParser
 
 class DataProjectParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -32,45 +32,44 @@ class DataProjectParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """
-        Ищет личные встречи прямо на странице CompetitionStandings.aspx,
-        используя регулярные выражения для поиска текста матчей.
-        """
-        team1_clean = team1.strip().lower()
-        team2_clean = team2.strip().lower()
-        print(f"[DEBUG] Поиск личных встреч: {team1_clean} vs {team2_clean}")
+        t1 = team1.strip().lower()
+        t2 = team2.strip().lower()
+        print(f"[DEBUG] Поиск встреч: {t1} vs {t2}")
 
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         try:
             resp = requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
+            print(f"[DEBUG] Статус: {resp.status_code}, длина: {len(resp.text)}")
+            # Выводим фрагмент HTML для отладки (первые 3000 символов, чтобы увидеть таблицу)
+            print(f"[DEBUG] HTML фрагмент: {resp.text[:3000]}")
         except Exception as e:
             print(f"[DEBUG] Ошибка: {e}")
             return pd.DataFrame()
 
         html = resp.text
-        # Ищем строки, содержащие дату, команды и счёт
+        # Ищем строки с датами и матчами. Формат: DD/MM/YYYY ... Команда1 X - Y Команда2
         # Пример: "11/10/2025 16:00 FC Porto 3 - 0 Clube Kairós"
+        # Создадим регулярное выражение, которое захватывает дату, названия команд и два числа
         pattern = re.compile(
-            r'(\d{2}/\d{2}/\d{4}).*?(' + re.escape(team1_clean) + r').*?(' + re.escape(team2_clean) + r').*?(\d+)\s*[-–:]\s*(\d+)',
-            re.DOTALL | re.IGNORECASE
+            rf'(\d{{2}}/\d{{2}}/\d{{4}})[^\n]*?({re.escape(t1)})[^\n]*?({re.escape(t2)})[^\n]*?(\d+)\s*[-–:]\s*(\d+)',
+            re.IGNORECASE
         )
         alt_pattern = re.compile(
-            r'(\d{2}/\d{2}/\d{4}).*?(' + re.escape(team2_clean) + r').*?(' + re.escape(team1_clean) + r').*?(\d+)\s*[-–:]\s*(\d+)',
-            re.DOTALL | re.IGNORECASE
+            rf'(\d{{2}}/\d{{2}}/\d{{4}})[^\n]*?({re.escape(t2)})[^\n]*?({re.escape(t1)})[^\n]*?(\d+)\s*[-–:]\s*(\d+)',
+            re.IGNORECASE
         )
 
         matches = []
-        for match in pattern.finditer(html):
-            date, home, away, home_score, away_score = match.groups()
+        for m in pattern.finditer(html):
+            date, home, away, home_score, away_score = m.groups()
             matches.append({
                 'Дата': date,
                 'Хозяева': home,
                 'Гости': away,
                 'Счёт': f"{home_score}:{away_score}"
             })
-        for match in alt_pattern.finditer(html):
-            date, away, home, away_score, home_score = match.groups()
+        for m in alt_pattern.finditer(html):
+            date, away, home, away_score, home_score = m.groups()
             matches.append({
                 'Дата': date,
                 'Хозяева': home,
@@ -78,7 +77,41 @@ class DataProjectParser(BaseParser):
                 'Счёт': f"{home_score}:{away_score}"
             })
 
-        # Удаляем дубликаты (если один матч найден дважды)
+        # Если ничего не найдено, попробуем более грубый поиск: ищем любую строку, содержащую дату и оба названия команд
+        if not matches:
+            print("[DEBUG] Не найдено по основному шаблону, пробуем упрощённый поиск")
+            lines = html.split('\n')
+            for line in lines:
+                if re.search(r'\d{2}/\d{2}/\d{4}', line) and re.search(re.escape(t1), line, re.I) and re.search(re.escape(t2), line, re.I):
+                    # Извлекаем счёт из этой строки
+                    score_match = re.search(r'(\d+)\s*[-–:]\s*(\d+)', line)
+                    if score_match:
+                        hs, aws = score_match.groups()
+                        # Определяем, какая команда хозяин (можно просто сохранить порядок как в строке)
+                        # Попробуем найти сразу после даты
+                        # Для простоты запишем обе команды в том порядке, в котором они встретились
+                        # Но лучше использовать альтернативный подход
+                        parts = re.split(r'\s+', line)
+                        # Найдём индексы команд
+                        try:
+                            idx1 = next(i for i, p in enumerate(parts) if t1 in p.lower())
+                            idx2 = next(i for i, p in enumerate(parts) if t2 in p.lower())
+                            if idx1 < idx2:
+                                home = parts[idx1]
+                                away = parts[idx2]
+                            else:
+                                home = parts[idx2]
+                                away = parts[idx1]
+                            matches.append({
+                                'Дата': re.search(r'(\d{2}/\d{2}/\d{4})', line).group(1),
+                                'Хозяева': home,
+                                'Гости': away,
+                                'Счёт': f"{hs}:{aws}"
+                            })
+                        except StopIteration:
+                            pass
+
+        # Удаляем дубликаты
         seen = set()
         unique = []
         for m in matches:
@@ -87,7 +120,7 @@ class DataProjectParser(BaseParser):
                 seen.add(key)
                 unique.append(m)
 
-        print(f"[DEBUG] Найдено встреч: {len(unique)}")
+        print(f"[DEBUG] Найдено уникальных встреч: {len(unique)}")
         return pd.DataFrame(unique)
 
     def _parse_standings_from_container(self, container):
