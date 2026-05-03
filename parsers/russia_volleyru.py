@@ -18,7 +18,9 @@ class RussiaVolleyRuParser(BaseParser):
         """
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
+            # Убираем город в скобках, лишние пробелы, приводим к нижнему регистру
             return name.split('(')[0].strip().lower()
+        
         t1 = clean(team1)
         t2 = clean(team2)
         print(f"[DEBUG] Поиск личных встреч {t1} vs {t2} на {url}")
@@ -59,6 +61,14 @@ class RussiaVolleyRuParser(BaseParser):
             team_num = int(cells[1].get_text(strip=True))
             team_by_num[team_num] = team_name
 
+        # Выводим все команды для отладки
+        all_teams = list(team_by_num.values())
+        print(f"[DEBUG] Команды в матрице: {all_teams}")
+        if t1 not in all_teams:
+            print(f"[DEBUG] Команда '{t1}' не найдена в матрице")
+        if t2 not in all_teams:
+            print(f"[DEBUG] Команда '{t2}' не найдена в матрице")
+
         # Перебираем ячейки матрицы
         matches = []
         for row in rows:
@@ -86,22 +96,19 @@ class RussiaVolleyRuParser(BaseParser):
                     if not match:
                         continue
                     hs, aws = match.groups()
-                    # Для личных встреч нам нужен результат матча между командами
-                    # Порядок: в строке home_name, в столбце away_name
                     # Первый div: home vs away, второй div: away vs home
                     if idx == 0:
                         if (home_name == t1 and away_name == t2) or (home_name == t2 and away_name == t1):
                             matches.append({
-                                'Дата': '(из матрицы)',
+                                'Дата': '(из таблицы)',
                                 'Хозяева': home_name,
                                 'Гости': away_name,
                                 'Счёт': f"{hs}:{aws}"
                             })
                     else:
-                        # Второй матч: away vs home
                         if (away_name == t1 and home_name == t2) or (away_name == t2 and home_name == t1):
                             matches.append({
-                                'Дата': '(из матрицы)',
+                                'Дата': '(из таблицы)',
                                 'Хозяева': away_name,
                                 'Гости': home_name,
                                 'Счёт': f"{hs}:{aws}"
