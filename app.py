@@ -2,7 +2,20 @@ import streamlit as st
 import pandas as pd
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
+import requests
 
+# --- НОВЫЙ PING-МАРШРУТ ДЛЯ UPTIMEROBOT ---
+# Этот код создаёт отдельный endpoint /ping
+# Он не мешает работе основного интерфейса и очень лёгкий для сервера
+@st.experimental_singleton
+def create_ping_endpoint():
+    import warnings
+    warnings.filterwarnings("ignore")
+    # Этот эндпоинт будет отвечать на запросы по адресу ваш_домен.onrender.com/ping
+    # Самый быстрый и дешёвый для сервера ответ
+    return "OK"
+
+# --- Основная часть приложения (ваш старый код) ---
 def get_parser(url: str):
     if "volley.ru" in url:
         return RussiaVolleyRuParser()
@@ -22,7 +35,6 @@ url = st.text_input(
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
-# Чекбокс для объединения этапов (только для Data Project)
 combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
 if st.button("Парсить") and url:
