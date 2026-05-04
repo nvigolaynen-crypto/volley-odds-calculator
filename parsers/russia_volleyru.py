@@ -46,10 +46,12 @@ class RussiaVolleyRuParser(BaseParser):
         home_num = team_num_by_name[t1]
         away_num = team_num_by_name[t2]
 
-        # Поиск ячейки по атрибутам data-i и data-j
+        # Поиск ячейки в ориентации home-away
         cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
+        orientation = 'home_away'
         if not cell:
             cell = soup.find('td', {'data-i': str(away_num), 'data-j': str(home_num)})
+            orientation = 'away_home'
         if not cell:
             print("[DEBUG] Ячейка не найдена")
             return pd.DataFrame()
@@ -58,27 +60,45 @@ class RussiaVolleyRuParser(BaseParser):
         matches = []
         for idx, div in enumerate(divs):
             score_text = div.get_text(strip=True)
-            match = re.search(r'(\d+):(\d+)', score_text)
-            if not match:
+            m = re.search(r'(\d+):(\d+)', score_text)
+            if not m:
                 continue
-            hs, aws = match.groups()
-            if idx == 0:
-                # Первый матч: team1 (хозяева) – team2 (гости)
-                matches.append({
-                    'Дата': "1-й круг",
-                    'Хозяева': team1,
-                    'Гости': team2,
-                    'Счёт': f"{hs}:{aws}"
-                })
-            else:
-                # Второй матч: team2 (хозяева) – team1 (гости). В ячейке порядок (away vs home),
-                # поэтому меняем местами счёт, чтобы он соответствовал хозяевам
-                matches.append({
-                    'Дата': "2-й круг",
-                    'Хозяева': team2,
-                    'Гости': team1,
-                    'Счёт': f"{aws}:{hs}"
-                })
+            hs, aws = m.groups()
+            if orientation == 'home_away':
+                if idx == 0:
+                    # Первый матч: team1 – team2
+                    matches.append({
+                        'Дата': "1-й круг",
+                        'Хозяева': team1,
+                        'Гости': team2,
+                        'Счёт': f"{hs}:{aws}"
+                    })
+                else:
+                    # Второй матч: team2 – team1
+                    matches.append({
+                        'Дата': "2-й круг",
+                        'Хозяева': team2,
+                        'Гости': team1,
+                        'Счёт': f"{hs}:{aws}"
+                    })
+            else:  # orientation == 'away_home'
+                if idx == 0:
+                    # Первый матч: team2 – team1
+                    matches.append({
+                        'Дата': "1-й круг",
+                        'Хозяева': team2,
+                        'Гости': team1,
+                        'Счёт': f"{hs}:{aws}"
+                    })
+                else:
+                    # Второй матч: team1 – team2
+                    matches.append({
+                        'Дата': "2-й круг",
+                        'Хозяева': team1,
+                        'Гости': team2,
+                        'Счёт': f"{hs}:{aws}"
+                    })
+        print(f"[DEBUG] Найдено матчей: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _fetch_single_phase(self, url: str):
