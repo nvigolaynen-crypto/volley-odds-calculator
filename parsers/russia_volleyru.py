@@ -71,12 +71,13 @@ class RussiaVolleyRuParser(BaseParser):
                     'Счёт': f"{hs}:{aws}"
                 })
             else:
-                # Второй матч: team2 (хозяева) – team1 (гости) – показываем как есть
+                # Второй матч: team2 (хозяева) – team1 (гости). В ячейке порядок (away vs home),
+                # поэтому меняем местами счёт, чтобы он соответствовал хозяевам
                 matches.append({
                     'Дата': "2-й круг",
                     'Хозяева': team2,
                     'Гости': team1,
-                    'Счёт': f"{hs}:{aws}"
+                    'Счёт': f"{aws}:{hs}"
                 })
         return pd.DataFrame(matches)
 
