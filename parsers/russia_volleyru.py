@@ -7,13 +7,11 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        """Парсит турнирную таблицу (сеты и мячи)"""
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """Ищет личные встречи в матричной таблице (оба круга)"""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
             return name.split('(')[0].strip().lower()
@@ -28,10 +26,11 @@ class RussiaVolleyRuParser(BaseParser):
             print("[DEBUG] Матричная таблица не найдена")
             return pd.DataFrame()
 
-        # Сопоставление названий команд и их номеров
+        # Получаем список команд из строк (первая колонка) и их номера
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
-        team_num_by_name = {}
+        team_by_num = {}
+        num_by_team = {}
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 2:
@@ -39,46 +38,89 @@ class RussiaVolleyRuParser(BaseParser):
             raw = cells[0].get_text(strip=True)
             cleaned = clean(raw)
             num = int(cells[1].get_text(strip=True))
-            team_num_by_name[cleaned] = num
+            team_by_num[num] = cleaned
+            num_by_team[cleaned] = num
 
-        if t1 not in team_num_by_name or t2 not in team_num_by_name:
-            print("[DEBUG] Одна из команд не найдена в матрице")
+        # Получаем список команд из заголовков столбцов (вторая строка thead)
+        thead = table.find('thead')
+        header_row = thead.find('tr')
+        ths = header_row.find_all('th')[2:]  # первые два пропускаем
+        column_teams = []
+        column_nums = []
+        for th in ths:
+            # В заголовках может быть текст с названием команды или номер
+            text = th.get_text(strip=True)
+            if text.isdigit():
+                column_nums.append(int(text))
+                # Найдём название команды по номеру
+                if int(text) in team_by_num:
+                    column_teams.append(team_by_num[int(text)])
+            else:
+                # Если текст не цифра, то это, возможно, название команды (но редкий случай)
+                column_teams.append(clean(text))
+        print(f"[DEBUG] Команды в столбцах: {column_teams}")
+
+        # Ищем строку с командой t1
+        home_row = None
+        home_num = num_by_team.get(t1)
+        if home_num is None:
+            print(f"[DEBUG] Команда {t1} не найдена в строках")
+            return pd.DataFrame()
+        for row in rows:
+            cells = row.find_all('td')
+            if len(cells) < 2:
+                continue
+            if int(cells[1].get_text(strip=True)) == home_num:
+                home_row = row
+                break
+        if not home_row:
+            print("[DEBUG] Строка с домашней командой не найдена")
             return pd.DataFrame()
 
-        home_num = team_num_by_name[t1]
-        away_num = team_num_by_name[t2]
+        # Находим индекс столбца, соответствующего t2
+        try:
+            col_idx = column_teams.index(t2)
+        except ValueError:
+            # Если не нашли, пробуем через номера
+            away_num = num_by_team.get(t2)
+            if away_num is None:
+                print(f"[DEBUG] Команда {t2} не найдена в столбцах")
+                return pd.DataFrame()
+            try:
+                col_idx = column_nums.index(away_num)
+            except ValueError:
+                print("[DEBUG] Номер команды не найден в заголовках")
+                return pd.DataFrame()
 
-        # Поиск ячейки по атрибутам data-i и data-j
-        cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
-        if not cell:
-            cell = soup.find('td', {'data-i': str(away_num), 'data-j': str(home_num)})
-        if not cell:
-            print("[DEBUG] Ячейка с результатами не найдена")
+        # Ячейка результатов находится на позиции 2 + col_idx
+        cells = home_row.find_all('td')
+        if 2 + col_idx >= len(cells):
+            print("[DEBUG] Выход за границы ячеек")
             return pd.DataFrame()
-
+        cell = cells[2 + col_idx]
         divs = cell.find_all('div')
         matches = []
         for idx, div in enumerate(divs):
             score_text = div.get_text(strip=True)
-            match = re.search(r'(\d+):(\d+)', score_text)
-            if not match:
+            score_match = re.search(r'(\d+):(\d+)', score_text)
+            if not score_match:
                 continue
-            hs, aws = match.groups()
+            hs, aws = score_match.groups()
             if idx == 0:
-                # первый матч: team1 (хозяева) – team2 (гости)
+                # Первый матч: домашняя команда t1, гостевая t2
                 matches.append({
-                    'Дата': f"Матч {idx+1} (1-й круг)",
+                    'Дата': '1-й круг',
                     'Хозяева': team1,
                     'Гости': team2,
                     'Счёт': f"{hs}:{aws}"
                 })
             else:
-                # второй матч: team2 (хозяева) – team1 (гости), переворачиваем счёт
+                # Второй матч: домашняя команда t2, гостевая t1
                 matches.append({
-                    'Дата': f"Матч {idx+1} (2-й круг)",
-                    'Хозяева': team1,
-                    'Гости': team2,
-                    'Счёт': f"{aws}:{hs}"
+                    'Дата': '2-й круг',
+                    'Хозяева': team2,
+                    'Гости': team1,
+                    'Счёт': f"{hs}:{aws}"
                 })
         print(f"[DEBUG] Найдено матчей: {len(matches)}")
         return pd.DataFrame(matches)
