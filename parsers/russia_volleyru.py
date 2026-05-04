@@ -46,7 +46,7 @@ class RussiaVolleyRuParser(BaseParser):
         home_num = team_num_by_name[t1]
         away_num = team_num_by_name[t2]
 
-        # Поиск ячейки по data-i и data-j
+        # Поиск ячейки
         cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
         orientation = 'home_away'
         if not cell:
@@ -56,10 +56,14 @@ class RussiaVolleyRuParser(BaseParser):
             print("[DEBUG] Ячейка не найдена")
             return pd.DataFrame()
 
+        print(f"[DEBUG] Ориентация: {orientation}")
+        print(f"[DEBUG] Содержимое ячейки: {cell.prettify()}")
+
         divs = cell.find_all('div')
         matches = []
         for idx, div in enumerate(divs):
             score_text = div.get_text(strip=True)
+            print(f"[DEBUG] div {idx} текст: {score_text}")
             m = re.search(r'(\d+):(\d+)', score_text)
             if not m:
                 continue
@@ -94,6 +98,7 @@ class RussiaVolleyRuParser(BaseParser):
                         'Гости': team2,
                         'Счёт': f"{hs}:{aws}"
                     })
+        print(f"[DEBUG] Найдено матчей: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _fetch_single_phase(self, url: str):
