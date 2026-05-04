@@ -7,17 +7,19 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
+        """Парсит турнирную таблицу (сеты и мячи)"""
         stats = self._fetch_single_phase(url)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        """Ищет личные встречи в матричной таблице (оба круга)"""
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
             return name.split('(')[0].strip().lower()
         t1 = clean(team1)
         t2 = clean(team2)
-        print(f"[DEBUG] Ищем личные встречи: '{t1}' vs '{t2}'")
+        print(f"[DEBUG] Поиск личных встреч: '{t1}' vs '{t2}'")
 
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -26,11 +28,10 @@ class RussiaVolleyRuParser(BaseParser):
             print("[DEBUG] Матричная таблица не найдена")
             return pd.DataFrame()
 
-        # Собираем соответствие номера команды и её очищенного названия
+        # Сопоставление названий команд и их номеров
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
         team_num_by_name = {}
-        team_name_by_num = {}
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 2:
@@ -39,25 +40,17 @@ class RussiaVolleyRuParser(BaseParser):
             cleaned = clean(raw)
             num = int(cells[1].get_text(strip=True))
             team_num_by_name[cleaned] = num
-            team_name_by_num[num] = cleaned
-            print(f"[DEBUG] {num}: {cleaned} (raw: {raw})")
 
-        if t1 not in team_num_by_name:
-            print(f"[DEBUG] Команда '{t1}' не найдена")
-            return pd.DataFrame()
-        if t2 not in team_num_by_name:
-            print(f"[DEBUG] Команда '{t2}' не найдена")
+        if t1 not in team_num_by_name or t2 not in team_num_by_name:
+            print("[DEBUG] Одна из команд не найдена в матрице")
             return pd.DataFrame()
 
         home_num = team_num_by_name[t1]
         away_num = team_num_by_name[t2]
-        print(f"[DEBUG] home_num={home_num}, away_num={away_num}")
 
-        # Ищем ячейку с атрибутами data-i и data-j
-        # data-i — номер команды в строке, data-j — номер команды в столбце
+        # Поиск ячейки по атрибутам data-i и data-j
         cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
         if not cell:
-            # Возможно, ячейка находится в другой ориентации (если команды поменяны местами)
             cell = soup.find('td', {'data-i': str(away_num), 'data-j': str(home_num)})
         if not cell:
             print("[DEBUG] Ячейка с результатами не найдена")
@@ -68,24 +61,25 @@ class RussiaVolleyRuParser(BaseParser):
         for idx, div in enumerate(divs):
             score_text = div.get_text(strip=True)
             match = re.search(r'(\d+):(\d+)', score_text)
-            if match:
-                hs, aws = match.groups()
-                # Первый div: home (data-i) vs away (data-j)
-                # Второй div: away (data-j) vs home (data-i)
-                if idx == 0:
-                    matches.append({
-                        'Дата': f"Матч {idx+1}",
-                        'Хозяева': team1,
-                        'Гости': team2,
-                        'Счёт': f"{hs}:{aws}"
-                    })
-                else:
-                    matches.append({
-                        'Дата': f"Матч {idx+1}",
-                        'Хозяева': team2,
-                        'Гости': team1,
-                        'Счёт': f"{hs}:{aws}"
-                    })
+            if not match:
+                continue
+            hs, aws = match.groups()
+            if idx == 0:
+                # первый матч: team1 (хозяева) – team2 (гости)
+                matches.append({
+                    'Дата': f"Матч {idx+1} (1-й круг)",
+                    'Хозяева': team1,
+                    'Гости': team2,
+                    'Счёт': f"{hs}:{aws}"
+                })
+            else:
+                # второй матч: team2 (хозяева) – team1 (гости), переворачиваем счёт
+                matches.append({
+                    'Дата': f"Матч {idx+1} (2-й круг)",
+                    'Хозяева': team1,
+                    'Гости': team2,
+                    'Счёт': f"{aws}:{hs}"
+                })
         print(f"[DEBUG] Найдено матчей: {len(matches)}")
         return pd.DataFrame(matches)
 
