@@ -12,10 +12,6 @@ class RussiaVolleyRuParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """
-        Ищет личные встречи на странице 'Все игры' (allgames).
-        Формирует URL, заменяя 'predvaritelnyy' на 'allgames'.
-        """
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
             return name.split('(')[0].strip().lower()
@@ -23,25 +19,18 @@ class RussiaVolleyRuParser(BaseParser):
         t2 = clean(team2)
         print(f"[DEBUG] Поиск личных встреч: '{t1}' vs '{t2}'")
 
-        # Формируем URL страницы "Все игры"
-        if 'predvaritelnyy' in url:
-            allgames_url = url.replace('predvaritelnyy', 'allgames')
-        else:
-            allgames_url = url
+        # Переход на страницу "Все игры"
+        allgames_url = url.replace('predvaritelnyy', 'allgames')
         print(f"[DEBUG] Загружаем: {allgames_url}")
 
         resp = requests.get(allgames_url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # Таблица матчей s-table--round
         table = soup.find('table', class_='s-table--round')
         if not table:
             print("[DEBUG] Таблица s-table--round не найдена")
             return pd.DataFrame()
 
         rows = table.find_all('tr', class_='table-game')
-        if not rows:
-            rows = table.find_all('tr')[1:]  # пропускаем заголовок
-
         matches = []
         for row in rows:
             cells = row.find_all('td')
@@ -57,22 +46,13 @@ class RussiaVolleyRuParser(BaseParser):
             home = clean(home_raw)
             away = clean(away_raw)
             if (home == t1 and away == t2) or (home == t2 and away == t1):
-                # Определяем, кто был хозяином в этом матче
-                if home == t1:
-                    matches.append({
-                        'Дата': date,
-                        'Хозяева': home_raw,
-                        'Гости': away_raw,
-                        'Счёт': total
-                    })
-                else:
-                    matches.append({
-                        'Дата': date,
-                        'Хозяева': home_raw,
-                        'Гости': away_raw,
-                        'Счёт': total
-                    })
-        print(f"[DEBUG] Найдено личных встреч: {len(matches)}")
+                matches.append({
+                    'Дата': date,
+                    'Хозяева': home_raw,
+                    'Гости': away_raw,
+                    'Счёт': total
+                })
+        print(f"[DEBUG] Найдено матчей: {len(matches)}")
         return pd.DataFrame(matches)
 
     def _fetch_single_phase(self, url: str):
