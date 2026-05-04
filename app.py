@@ -22,6 +22,7 @@ url = st.text_input(
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
+# Чекбокс для объединения этапов (только для Data Project)
 combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
 if st.button("Парсить") and url:
