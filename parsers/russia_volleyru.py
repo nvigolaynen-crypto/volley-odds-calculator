@@ -12,6 +12,10 @@ class RussiaVolleyRuParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        """
+        Парсит личные встречи из детальной таблицы матчей (s-table--round),
+        расположенной на той же странице предварительного этапа.
+        """
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
             return name.split('(')[0].strip().lower()
@@ -21,7 +25,8 @@ class RussiaVolleyRuParser(BaseParser):
 
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # Находим детальную таблицу матчей (s-table--round)
+
+        # Детальная таблица матчей
         table = soup.find('table', class_='s-table--round')
         if not table:
             print("[DEBUG] Таблица s-table--round не найдена")
