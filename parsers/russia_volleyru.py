@@ -46,29 +46,32 @@ class RussiaVolleyRuParser(BaseParser):
         home_num = team_num_by_name[t1]
         away_num = team_num_by_name[t2]
 
-        # Поиск ячейки
+        # Поиск ячейки (прямая или обратная ориентация)
         cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
-        orientation = 'home_away'
+        reversed_cell = None
         if not cell:
             cell = soup.find('td', {'data-i': str(away_num), 'data-j': str(home_num)})
-            orientation = 'away_home'
+            reversed_cell = True
+        else:
+            reversed_cell = False
         if not cell:
             print("[DEBUG] Ячейка не найдена")
             return pd.DataFrame()
 
-        print(f"[DEBUG] Ориентация: {orientation}")
-        print(f"[DEBUG] Содержимое ячейки: {cell.prettify()}")
-
         divs = cell.find_all('div')
         matches = []
+        # В ячейке два div-а: первый матч, второй матч
+        # Если ячейка прямая (data-i=home_num, data-j=away_num), то первый div – матч team1 vs team2,
+        # второй div – матч team2 vs team1.
+        # Если ячейка обратная (data-i=away_num, data-j=home_num), то первый div – матч team2 vs team1,
+        # второй div – матч team1 vs team2.
         for idx, div in enumerate(divs):
             score_text = div.get_text(strip=True)
-            print(f"[DEBUG] div {idx} текст: {score_text}")
             m = re.search(r'(\d+):(\d+)', score_text)
             if not m:
                 continue
             hs, aws = m.groups()
-            if orientation == 'home_away':
+            if not reversed_cell:
                 if idx == 0:
                     matches.append({
                         'Дата': "1-й круг",
