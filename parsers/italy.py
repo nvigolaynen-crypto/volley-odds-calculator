@@ -6,66 +6,36 @@ from .base_parser import BaseParser
 
 class ItalyParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        """
-        Парсит турнирную таблицу итальянской волейбольной лиги (legavolley.it).
-        Возвращает DataFrame с колонками: Команда, Сеты, Мячи.
-        """
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Ищем таблицу с id="GareGiornata" (регистр важен)
+        resp = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(resp.text, 'html.parser')
         table = soup.find('table', id='GareGiornata')
         if not table:
-            raise ValueError("Не найдена таблица с результатами (id='GareGiornata')")
-
+            raise ValueError("Таблица не найдена (id='GareGiornata')")
         stats = {}
-        # Все строки с классом "EvenRow" содержат данные команд
         rows = table.find_all('tr', id='EvenRow')
         if not rows:
-            rows = table.find_all('tr')[2:]  # запасной вариант
-
+            rows = table.find_all('tr')[2:]
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 14:
                 continue
-
-            # Извлекаем название команды (ячейка 2, содержит span.pos и текст)
             team_cell = cells[2].get_text(strip=True)
-            # Удаляем номер позиции (например, "1 " или "1.")
             team_name = re.sub(r'^\d+\.?\s*', '', team_cell).strip()
-
-            # Выигранные и проигранные сеты (колонки Vinti и Persi)
-            sets_won_text = cells[10].get_text(strip=True)
-            sets_lost_text = cells[11].get_text(strip=True)
-            # Набранные и пропущенные очки (колонки Fatti и Subiti)
-            points_won_text = cells[12].get_text(strip=True)
-            points_lost_text = cells[13].get_text(strip=True)
-
-            # Преобразуем в числа (заменяем запятые на точки, если есть)
-            try:
-                sets_won = int(sets_won_text)
-                sets_lost = int(sets_lost_text)
-                points_won = float(points_won_text.replace(',', '.')) if ',' in points_won_text else int(points_won_text)
-                points_lost = float(points_lost_text.replace(',', '.')) if ',' in points_lost_text else int(points_lost_text)
-            except (ValueError, IndexError):
-                continue
-
+            sets_won = int(cells[10].get_text(strip=True))
+            sets_lost = int(cells[11].get_text(strip=True))
+            points_won = float(cells[12].get_text(strip=True).replace(',', '.'))
+            points_lost = float(cells[13].get_text(strip=True).replace(',', '.'))
             stats[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
                 'points_won': points_won,
                 'points_lost': points_lost
             }
-
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        """
-        Личные встречи для Италии вводятся вручную.
-        """
         print("[DEBUG] Личные встречи для Италии вводятся вручную")
         return pd.DataFrame()
 
