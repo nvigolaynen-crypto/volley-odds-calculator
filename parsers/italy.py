@@ -9,18 +9,35 @@ class ItalyParser(BaseParser):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        # Ищем таблицу по разным признакам
         table = soup.find('table', id='GareGiornata')
         if not table:
-            raise ValueError("Таблица не найдена (id='GareGiornata')")
+            table = soup.find('table', {'id': re.compile(r'GareGiornata', re.I)})
+        if not table:
+            # Ищем по классам
+            table = soup.find('table', class_='GareGiornata')
+        if not table:
+            # Ищем любую таблицу, содержащую столбцы "Punti", "Partite", "Set"
+            tables = soup.find_all('table')
+            for tbl in tables:
+                if tbl.find('th', string=re.compile(r'Punti|Partite|Set', re.I)):
+                    table = tbl
+                    break
+        if not table:
+            raise ValueError("Не найдена таблица с результатами")
+        
         stats = {}
         rows = table.find_all('tr', id='EvenRow')
         if not rows:
-            rows = table.find_all('tr')[2:]
+            rows = table.find_all('tr')[2:]  # пропускаем заголовок
+        
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 14:
                 continue
             team_cell = cells[2].get_text(strip=True)
+            # Убираем номер позиции (например, "1 " или "1.")
             team_name = re.sub(r'^\d+\.?\s*', '', team_cell).strip()
             sets_won = int(cells[10].get_text(strip=True))
             sets_lost = int(cells[11].get_text(strip=True))
