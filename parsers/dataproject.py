@@ -11,19 +11,41 @@ class DataProjectParser(BaseParser):
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
 
-        table = soup.find('table', class_='RG_Standing_Main')
-        if not table:
-            table = soup.find('table', class_='rgMasterTable')
-        if not table:
-            raise ValueError("Не найдена таблица с результатами")
-        
-        stats = self._parse_standing_table(table)
+        if combine_phases:
+            # Собираем все контейнеры этапов (rmpView или Content_Main_цифра)
+            phase_containers = soup.find_all('div', class_='rmpView')
+            if not phase_containers:
+                phase_containers = soup.find_all('div', id=re.compile(r'Content_Main_\d+'))
+            combined = defaultdict(lambda: {'sets_won': 0, 'sets_lost': 0, 'points_won': 0, 'points_lost': 0})
+            for container in phase_containers:
+                phase_stats = self._parse_standings_from_container(container)
+                for team, data in phase_stats.items():
+                    combined[team]['sets_won'] += data['sets_won']
+                    combined[team]['sets_lost'] += data['sets_lost']
+                    combined[team]['points_won'] += data['points_won']
+                    combined[team]['points_lost'] += data['points_lost']
+            stats = combined
+        else:
+            stats = self._parse_standings_from_container(soup)
+
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
         print("[DEBUG] Личные встречи для Data Project вводятся вручную")
         return pd.DataFrame()
+
+    def _parse_standings_from_container(self, container):
+        # Ищем таблицу в контейнере
+        table = container.find('table', class_='RG_Standing_Main')
+        if not table:
+            table = container.find('table', class_='rgMasterTable')
+        if not table:
+            # Возможно, таблица без класса – ищем по атрибутам
+            table = container.find('table', {'id': re.compile(r'RG_Standing_Main')})
+        if not table:
+            return {}
+        return self._parse_standing_table(table)
 
     def _parse_standing_table(self, table):
         tbody = table.find('tbody') or table
@@ -47,6 +69,7 @@ class DataProjectParser(BaseParser):
             points_won = 0
             points_lost = 0
 
+            # Поиск по ID
             s_w = row.find('span', id='SetsWon')
             s_l = row.find('span', id='SetsLost')
             p_w = row.find('span', id='PuntiFatti') or row.find('span', id='PointsWon')
@@ -62,6 +85,7 @@ class DataProjectParser(BaseParser):
                     points_lost = int(p_l.get_text(strip=True))
                 except: pass
 
+            # Эвристика по индексам
             if sets_won == 0 and len(cells) >= 6:
                 for i in range(1, len(cells)-1):
                     if cells[i].get_text(strip=True).isdigit() and cells[i+1].get_text(strip=True).isdigit():
@@ -75,6 +99,11 @@ class DataProjectParser(BaseParser):
                         break
                     except: pass
 
+            if sets_won == 0 and sets_lost == 0:
+                continue
+
+            # Очищаем название команды (убираем возможный номер в начале)
+            team_name = re.sub(r'^\d+\s*', '', team_name)
             stats[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
