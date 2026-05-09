@@ -10,45 +10,44 @@ class ItalyParser(BaseParser):
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # Ищем таблицу по разным признакам
-        table = soup.find('table', id='GareGiornata')
-        if not table:
-            table = soup.find('table', {'id': re.compile(r'GareGiornata', re.I)})
-        if not table:
-            # Ищем по классам
-            table = soup.find('table', class_='GareGiornata')
-        if not table:
-            # Ищем любую таблицу, содержащую столбцы "Punti", "Partite", "Set"
-            tables = soup.find_all('table')
-            for tbl in tables:
-                if tbl.find('th', string=re.compile(r'Punti|Partite|Set', re.I)):
-                    table = tbl
-                    break
-        if not table:
-            raise ValueError("Не найдена таблица с результатами")
+        # Ищем весь текст страницы
+        page_text = soup.get_text()
+        
+        # Ищем секцию с данными о командах
+        # Данные находятся после строки "Classifica Regular Season Serie A2 Credem Banca"
+        match = re.search(r'Classifica Regular Season Serie A2 Credem Banca(.*?)Legenda', page_text, re.DOTALL)
+        if not match:
+            raise ValueError("Не удалось найти данные турнирной таблицы")
+        
+        table_text = match.group(1)
+        
+        # Разбиваем на строки
+        lines = table_text.strip().split('\n')
         
         stats = {}
-        rows = table.find_all('tr', id='EvenRow')
-        if not rows:
-            rows = table.find_all('tr')[2:]  # пропускаем заголовок
+        # Регулярное выражение для поиска данных команды
+        # Пример: "1 Abba Pineto | 58 | 26 | 20 | 6 | 10 | 6 | 4 | 2 | 2 | 2 | 66 | 32 | 2.273 | 2.089 | 2,06 | 1,09"
+        pattern = re.compile(r'(\d+)\s+(.+?)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([\d.,]+)\s*\|\s*([\d.,]+)\s*\|\s*([\d.,]+)\s*\|\s*([\d.,]+)')
         
-        for row in rows:
-            cells = row.find_all('td')
-            if len(cells) < 14:
-                continue
-            team_cell = cells[2].get_text(strip=True)
-            # Убираем номер позиции (например, "1 " или "1.")
-            team_name = re.sub(r'^\d+\.?\s*', '', team_cell).strip()
-            sets_won = int(cells[10].get_text(strip=True))
-            sets_lost = int(cells[11].get_text(strip=True))
-            points_won = float(cells[12].get_text(strip=True).replace(',', '.'))
-            points_lost = float(cells[13].get_text(strip=True).replace(',', '.'))
-            stats[team_name] = {
-                'sets_won': sets_won,
-                'sets_lost': sets_lost,
-                'points_won': points_won,
-                'points_lost': points_lost
-            }
+        for line in lines:
+            match = pattern.search(line)
+            if match:
+                team_name = match.group(2).strip()
+                sets_won = int(match.group(12))  # Vinti
+                sets_lost = int(match.group(13))  # Persi
+                points_won = float(match.group(14).replace(',', '.'))  # Fatti
+                points_lost = float(match.group(15).replace(',', '.'))  # Subiti
+                
+                stats[team_name] = {
+                    'sets_won': sets_won,
+                    'sets_lost': sets_lost,
+                    'points_won': points_won,
+                    'points_lost': points_lost
+                }
+        
+        if not stats:
+            raise ValueError("Не удалось извлечь данные о командах")
+        
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
 
