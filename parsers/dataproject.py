@@ -10,8 +10,7 @@ class DataProjectParser(BaseParser):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # Поиск таблицы с результатами (RG_Standing_Main или rgMasterTable)
+
         table = soup.find('table', class_='RG_Standing_Main')
         if not table:
             table = soup.find('table', class_='rgMasterTable')
@@ -21,7 +20,11 @@ class DataProjectParser(BaseParser):
         stats = self._parse_standing_table(table)
         df = self._make_dataframe(stats)
         return df, pd.DataFrame()
-    
+
+    def fetch_head_to_head(self, url: str, team1: str, team2: str):
+        print("[DEBUG] Личные встречи для Data Project вводятся вручную")
+        return pd.DataFrame()
+
     def _parse_standing_table(self, table):
         tbody = table.find('tbody') or table
         rows = tbody.find_all('tr')
@@ -38,32 +41,27 @@ class DataProjectParser(BaseParser):
                     team_name = link.get_text(strip=True)
             if not team_name:
                 continue
-            
+
             sets_won = 0
             sets_lost = 0
             points_won = 0
             points_lost = 0
-            
-            # Поиск по ID (стандарт Data Project)
-            sets_won_span = row.find('span', id='SetsWon')
-            sets_lost_span = row.find('span', id='SetsLost')
-            points_won_span = row.find('span', id='PuntiFatti') or row.find('span', id='PointsWon')
-            points_lost_span = row.find('span', id='PuntiSubiti') or row.find('span', id='PointsLost')
-            
-            if sets_won_span and sets_lost_span:
+
+            s_w = row.find('span', id='SetsWon')
+            s_l = row.find('span', id='SetsLost')
+            p_w = row.find('span', id='PuntiFatti') or row.find('span', id='PointsWon')
+            p_l = row.find('span', id='PuntiSubiti') or row.find('span', id='PointsLost')
+            if s_w and s_l:
                 try:
-                    sets_won = int(sets_won_span.get_text(strip=True))
-                    sets_lost = int(sets_lost_span.get_text(strip=True))
-                except:
-                    pass
-            if points_won_span and points_lost_span:
+                    sets_won = int(s_w.get_text(strip=True))
+                    sets_lost = int(s_l.get_text(strip=True))
+                except: pass
+            if p_w and p_l:
                 try:
-                    points_won = int(points_won_span.get_text(strip=True))
-                    points_lost = int(points_lost_span.get_text(strip=True))
-                except:
-                    pass
-            
-            # Если не нашли по ID, пробуем эвристику по индексам
+                    points_won = int(p_w.get_text(strip=True))
+                    points_lost = int(p_l.get_text(strip=True))
+                except: pass
+
             if sets_won == 0 and len(cells) >= 6:
                 for i in range(1, len(cells)-1):
                     if cells[i].get_text(strip=True).isdigit() and cells[i+1].get_text(strip=True).isdigit():
@@ -75,9 +73,8 @@ class DataProjectParser(BaseParser):
                         points_won = int(cells[i].get_text(strip=True))
                         points_lost = int(cells[i+1].get_text(strip=True))
                         break
-                    except:
-                        pass
-            
+                    except: pass
+
             stats[team_name] = {
                 'sets_won': sets_won,
                 'sets_lost': sets_lost,
@@ -85,7 +82,7 @@ class DataProjectParser(BaseParser):
                 'points_lost': points_lost
             }
         return stats
-    
+
     def _make_dataframe(self, stats):
         if not stats:
             return pd.DataFrame()
@@ -95,7 +92,3 @@ class DataProjectParser(BaseParser):
         df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
         df = df.sort_values('sets_won', ascending=False)
         return df[['Команда', 'Сеты', 'Мячи']]
-    
-    def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        print("[DEBUG] Личные встречи для Data Project вводятся вручную")
-        return pd.DataFrame()
