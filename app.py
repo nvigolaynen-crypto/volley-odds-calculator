@@ -2,44 +2,80 @@ import streamlit as st
 import pandas as pd
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
+from parsers.italy import ItalyParser
+from parsers.poland import PolandParser
+from parsers.turkey import TurkeyParser
 
-def get_parser(url: str):
+# ------------------------------------------------------------
+# Словарь доступных парсеров
+# ------------------------------------------------------------
+PARSERS = {
+    "Россия (volley.ru)": RussiaVolleyRuParser(),
+    "Data Project (универсальный)": DataProjectParser(),
+    "Италия (legavolley.it)": ItalyParser(),
+    "Польша (заглушка)": PolandParser(),
+    "Турция (заглушка)": TurkeyParser(),
+}
+
+# ------------------------------------------------------------
+# Функция определения парсера по URL (резерв, если нужен авторежим)
+# ------------------------------------------------------------
+def get_parser_by_url(url: str):
     if "volley.ru" in url:
         return RussiaVolleyRuParser()
     elif "dataproject.com" in url:
         return DataProjectParser()
+    elif "legavolley.it" in url:
+        return ItalyParser()
     else:
-        raise ValueError("URL не поддерживается. Используйте volley.ru или dataproject.com")
+        raise ValueError("URL не поддерживается. Выберите страну вручную или используйте volley.ru / dataproject.com / legavolley.it")
 
+# ------------------------------------------------------------
+# Настройка страницы Streamlit
+# ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
+# Инициализация состояния
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
 if 'h2h_manual' not in st.session_state:
-    st.session_state.h2h_manual = {}
+    st.session_state.h2h_manual = {}  # ключ (team1, team2) -> список матчей
+
+# ------------------------------------------------------------
+# Боковая панель / выбор страны и ввод URL
+# ------------------------------------------------------------
+country = st.selectbox("Выберите страну / источник", list(PARSERS.keys()))
+parser = PARSERS[country]
 
 url = st.text_input(
     "Введите URL страницы с результатами (таблица, standings)",
     "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
 )
 
-combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
+# Для Data Project – чекбокс объединения этапов
+combine_phases = False
+if country == "Data Project (универсальный)":
+    combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
+# Кнопка запуска парсинга
 if st.button("Парсить") and url:
     with st.spinner("Загрузка данных..."):
         try:
-            parser = get_parser(url)
+            # Для ручного выбора страны используем выбранный парсер
             df, _ = parser.fetch_stats(url, combine_phases=combine_phases)
             if df is not None and not df.empty and 'Команда' in df.columns:
                 st.session_state.df_teams = df
                 st.success("Данные загружены")
             else:
-                st.warning("Не удалось загрузить данные. Возможно, турнир не найден или volleystats не дал результата.")
+                st.warning("Не удалось загрузить данные. Проверьте URL и структуру страницы.")
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
+# ------------------------------------------------------------
+# Отображение таблицы и прогноза
+# ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
         st.error("Некорректный формат данных: отсутствует колонка 'Команда'")
@@ -59,6 +95,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             st.caption(f"Сеты: {away_data['Сеты']} | Мячи: {away_data['Мячи']}")
 
         if home and away and home != away:
+            # Извлечение числовых данных
             try:
                 home_sets_w, home_sets_l = map(int, home_data['Сеты'].split(':'))
                 away_sets_w, away_sets_l = map(int, away_data['Сеты'].split(':'))
@@ -68,6 +105,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.error(f"Ошибка формата данных: {e}")
                 st.stop()
 
+            # Расчёт форы (средняя разница очков за матч)
             total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
             home_avg_diff = (home_pts_w - home_pts_l) / total_matches
             away_avg_diff = (away_pts_w - away_pts_l) / total_matches
@@ -79,6 +117,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             elif handicap < 0:
                 st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
 
+            # Прогноз победителя по сётам
             home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
             away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
             predicted_winner = home if home_winrate > away_winrate else away
@@ -91,6 +130,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
 
+            # Форма для ручного ввода личной встречи
             with st.expander("➕ Добавить личную встречу вручную"):
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
@@ -118,10 +158,12 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     else:
                         st.error("Заполните хозяев, гостей и фору по очкам")
 
+            # Отображение личных встреч для выбранной пары
             key_pair = (home, away)
             reverse_key = (away, home)
             h2h_data = []
 
+            # Прямой порядок
             if key_pair in st.session_state.h2h_manual:
                 for m in st.session_state.h2h_manual[key_pair]:
                     h2h_data.append({
@@ -131,6 +173,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         'Счёт по сетам': m.get('Счёт по сетам', ''),
                         'Фора по очкам': m['Фора по очкам']
                     })
+            # Обратный порядок – переворачиваем и меняем знак форы
             if reverse_key in st.session_state.h2h_manual:
                 for m in st.session_state.h2h_manual[reverse_key]:
                     new_points = -m['Фора по очкам']
@@ -146,12 +189,12 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 df_h2h = pd.DataFrame(h2h_data)
                 df_h2h = df_h2h.drop_duplicates(subset=['Дата', 'Хозяева', 'Гости'])
                 st.subheader(f"История встреч: {home} – {away}")
-                df_h2h['Фора'] = df_h2h['Фора по очкам'].apply(lambda x: f"{x}" if x <= 0 else f"{x}")
+                df_h2h['Фора (очки)'] = df_h2h['Фора по очкам'].apply(lambda x: f"{x}" if x <= 0 else f"{x}")
                 cols_to_show = ['Дата', 'Хозяева', 'Гости']
                 if df_h2h['Счёт по сетам'].any():
                     cols_to_show.append('Счёт по сетам')
-                cols_to_show.append('Фора')
-                st.dataframe(df_h2h[cols_to_show].rename(columns={'Фора': 'Фора (очки)'}))
+                cols_to_show.append('Фора (очки)')
+                st.dataframe(df_h2h[cols_to_show])
                 if st.button(f"Очистить ручные данные для {home} – {away}"):
                     if key_pair in st.session_state.h2h_manual:
                         del st.session_state.h2h_manual[key_pair]
@@ -162,5 +205,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.info("Нет данных о личных встречах. Добавьте вручную через раздел выше.")
         else:
             st.info("Выберите две разные команды")
-elif st.session_state.df_teams is not None and st.session_state.df_teams.empty:
-    st.warning("Таблица с командами пуста. Проверьте правильность URL и наличие данных.")
+
+else:
+    if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
+        st.warning("Таблица с командами пуста. Проверьте правильность URL и наличие данных.")
