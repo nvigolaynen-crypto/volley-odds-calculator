@@ -18,10 +18,8 @@ st.title("🏐 Волейбольная статистика")
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 
-# Хранилище ручных личных встреч
-# Структура: {(команда1, команда2): [{'Дата': '...', 'Хозяева': '...', 'Гости': '...', 'Счёт': '...', 'Фора': число}]}
 if 'h2h_manual' not in st.session_state:
-    st.session_state.h2h_manual = {}
+    st.session_state.h2h_manual = {}  # ключ (team1, team2) -> список матчей
 
 url = st.text_input(
     "Введите URL страницы с результатами (таблица, standings)",
@@ -90,115 +88,82 @@ if st.session_state.df_teams is not None:
             st.caption("Прогноз основан на статистике сезона (может отличаться)")
 
             st.divider()
-            st.subheader("📋 Личные встречи (только ручной ввод)")
+            st.subheader("📋 Личные встречи (ручной ввод)")
 
-            # Форма для добавления личной встречи
-            with st.expander("➕ Добавить личную встречу"):
-                col_a, col_b = st.columns(2)
+            # Форма для ручного ввода личной встречи
+            with st.expander("➕ Добавить личную встречу вручную"):
+                col_a, col_b, col_c = st.columns(3)
                 with col_a:
                     manual_home = st.selectbox("Хозяева", teams, key="manual_home")
                 with col_b:
                     manual_away = st.selectbox("Гости", teams, key="manual_away")
-                
-                # Два варианта ввода: по сётам или по очкам
-                input_type = st.radio("Тип результата", ["Счёт по сетам (3:1)", "Фора по очкам (5 или -5)"], horizontal=True)
-                
-                if input_type == "Счёт по сетам (3:1)":
-                    manual_score = st.text_input("Счёт (например, 3:1)", key="manual_score")
-                    if st.button("Добавить по счёту"):
-                        if manual_home and manual_away and ":" in manual_score:
-                            key = (manual_home, manual_away)
-                            if key not in st.session_state.h2h_manual:
-                                st.session_state.h2h_manual[key] = []
-                            st.session_state.h2h_manual[key].append({
-                                'Дата': "(ручной ввод)",
-                                'Хозяева': manual_home,
-                                'Гости': manual_away,
-                                'Счёт': manual_score,
-                                'Фора': ''
-                            })
-                            st.success(f"Добавлен матч {manual_home} – {manual_away} {manual_score}")
-                            st.rerun()
-                        else:
-                            st.error("Введите счёт в формате X:Y")
-                else:  # Фора по очкам
-                    manual_handicap = st.number_input("Фора (очки)", step=0.5, format="%.1f", key="manual_handicap",
-                                                      help="Положительное – победа хозяев, отрицательное – победа гостей")
-                    if st.button("Добавить по форе"):
-                        if manual_home and manual_away and manual_handicap is not None:
-                            key = (manual_home, manual_away)
-                            if key not in st.session_state.h2h_manual:
-                                st.session_state.h2h_manual[key] = []
-                            st.session_state.h2h_manual[key].append({
-                                'Дата': "(ручной ввод)",
-                                'Хозяева': manual_home,
-                                'Гости': manual_away,
-                                'Счёт': '',
-                                'Фора': manual_handicap
-                            })
-                            st.success(f"Добавлен матч {manual_home} – {manual_away} с форой {manual_handicap}")
-                            st.rerun()
-                        else:
-                            st.error("Заполните хозяев, гостей и фору")
+                with col_c:
+                    manual_sets = st.text_input("Счёт по сетам (например, 3:1)", key="manual_sets", placeholder="3:1")
+                manual_points = st.number_input("Фора по очкам (положительное – победа хозяев, отрицательное – победа гостей)", step=0.5, format="%.1f", key="manual_points")
+                manual_date = st.text_input("Дата (необязательно)", placeholder="01.01.2026", key="manual_date")
+                if st.button("Добавить личную встречу"):
+                    if manual_home and manual_away and manual_points is not None:
+                        key = (manual_home, manual_away)
+                        if key not in st.session_state.h2h_manual:
+                            st.session_state.h2h_manual[key] = []
+                        st.session_state.h2h_manual[key].append({
+                            'Дата': manual_date if manual_date else "(ручной ввод)",
+                            'Хозяева': manual_home,
+                            'Гости': manual_away,
+                            'Счёт по сетам': manual_sets,
+                            'Фора по очкам': manual_points
+                        })
+                        st.success(f"Добавлен матч {manual_home} – {manual_away}")
+                        st.rerun()
+                    else:
+                        st.error("Заполните хозяев, гостей и фору по очкам")
 
             # Отображение личных встреч для выбранной пары
             key_pair = (home, away)
             reverse_key = (away, home)
             h2h_data = []
 
-            # Добавляем ручные данные в прямом и обратном порядке (приводим к виду home vs away)
+            # Прямой порядок
             if key_pair in st.session_state.h2h_manual:
                 for m in st.session_state.h2h_manual[key_pair]:
                     h2h_data.append({
                         'Дата': m['Дата'],
                         'Хозяева': m['Хозяева'],
                         'Гости': m['Гости'],
-                        'Счёт': m['Счёт'],
-                        'Фора': m['Фора']
+                        'Счёт по сетам': m.get('Счёт по сетам', ''),
+                        'Фора по очкам': m['Фора по очкам']
                     })
+            # Обратный порядок – переворачиваем и меняем знак форы
             if reverse_key in st.session_state.h2h_manual:
                 for m in st.session_state.h2h_manual[reverse_key]:
-                    # Если есть фора, меняем знак
-                    new_handicap = -m['Фора'] if m['Фора'] != '' else ''
+                    new_points = -m['Фора по очкам']
                     h2h_data.append({
                         'Дата': m['Дата'],
                         'Хозяева': home,
                         'Гости': away,
-                        'Счёт': m['Счёт'],
-                        'Фора': new_handicap
+                        'Счёт по сетам': m.get('Счёт по сетам', ''),
+                        'Фора по очкам': new_points
                     })
 
             if h2h_data:
                 df_h2h = pd.DataFrame(h2h_data)
-                df_h2h = df_h2h.drop_duplicates(subset=['Дата', 'Хозяева', 'Гости', 'Счёт', 'Фора'])
+                # Убираем дубликаты (по дате, хозяевам, гостям)
+                df_h2h = df_h2h.drop_duplicates(subset=['Дата', 'Хозяева', 'Гости'])
                 st.subheader(f"История встреч: {home} – {away}")
-                
-                # Форматируем колонку Форы: для положительных чисел убираем знак +
-                def format_handicap(val):
-                    if isinstance(val, (int, float)) and val > 0:
-                        return str(val)
-                    elif isinstance(val, (int, float)) and val <= 0:
-                        return str(val)
-                    return str(val)
-                
-                if 'Фора' in df_h2h.columns:
-                    df_h2h['Фора (очки)'] = df_h2h['Фора'].apply(lambda x: format_handicap(x) if x != '' else '')
-                    cols = ['Дата', 'Хозяева', 'Гости']
-                    if any(df_h2h['Счёт'] != ''):
-                        cols.append('Счёт')
-                    if any(df_h2h['Фора (очки)'] != ''):
-                        cols.append('Фора (очки)')
-                    st.dataframe(df_h2h[cols])
-                else:
-                    st.dataframe(df_h2h[['Дата', 'Хозяева', 'Гости', 'Счёт']])
-                
-                if st.button(f"🗑 Очистить все ручные данные для {home} – {away}"):
+                # Форматируем отображение форы: без знака +, только минус
+                df_h2h['Фора'] = df_h2h['Фора по очкам'].apply(lambda x: f"{x}" if x <= 0 else f"{x}")
+                cols_to_show = ['Дата', 'Хозяева', 'Гости']
+                if df_h2h['Счёт по сетам'].any():
+                    cols_to_show.append('Счёт по сетам')
+                cols_to_show.append('Фора')
+                st.dataframe(df_h2h[cols_to_show].rename(columns={'Фора': 'Фора (очки)'}))
+                if st.button(f"Очистить ручные данные для {home} – {away}"):
                     if key_pair in st.session_state.h2h_manual:
                         del st.session_state.h2h_manual[key_pair]
                     if reverse_key in st.session_state.h2h_manual:
                         del st.session_state.h2h_manual[reverse_key]
                     st.rerun()
             else:
-                st.info("Нет ручных данных о личных встречах. Добавьте через раздел выше.")
+                st.info("Нет данных о личных встречах. Добавьте вручную через раздел выше.")
         else:
             st.info("Выберите две разные команды")
