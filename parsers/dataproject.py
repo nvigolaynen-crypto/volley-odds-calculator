@@ -12,7 +12,7 @@ class DataProjectParser(BaseParser):
         fed = fed_match.group(1)
         comp_match = re.search(r'[?&]ID=(\d+)', url)
         if not comp_match:
-            raise ValueError("Не удалось определить ID")
+            raise ValueError("Не удалось определить ID соревнования")
         comp_id = comp_match.group(1)
 
         cmd = ["volleystats", "--fed", fed, "--comp", comp_id]
@@ -28,6 +28,6 @@ class DataProjectParser(BaseParser):
         return combined, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        # Для Data Project личные встречи пока не реализованы
-        print("[DEBUG] Личные встречи для Data Project пока не поддерживаются")
+        # Автоматический поиск личных встреч для Data Project отключён
+        print("[DEBUG] Личные встречи для Data Project вводятся вручную")
         return pd.DataFrame()
