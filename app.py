@@ -3,11 +3,11 @@ import pandas as pd
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 from parsers.italy import ItalyParser
-from parsers.poland import PolandParser
-from parsers.turkey import TurkeyParser
+from parsers.poland import PolandParser   # если ещё нет – заглушка
+from parsers.turkey import TurkeyParser   # если ещё нет – заглушка
 
 # ------------------------------------------------------------
-# Функция автоматического определения парсера по URL
+# Функция определения парсера по URL
 # ------------------------------------------------------------
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
@@ -21,10 +21,10 @@ def get_parser_by_url(url: str):
     elif "turkey" in url or "tvf" in url:
         return TurkeyParser()
     else:
-        raise ValueError("URL не поддерживается. Попробуйте volley.ru, dataproject.com или legavolley.it")
+        return None
 
 # ------------------------------------------------------------
-# Настройка страницы Streamlit
+# Настройка страницы
 # ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
@@ -37,33 +37,108 @@ if 'h2h_manual' not in st.session_state:
     st.session_state.h2h_manual = {}
 
 # ------------------------------------------------------------
-# Ввод URL (парсер определяется автоматически)
+# Режимы работы
 # ------------------------------------------------------------
-url = st.text_input(
-    "Введите URL страницы с результатами (standings / classifica / таблица)",
-    "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
-)
+mode = st.radio("Выберите режим", ["Автоматический парсинг (по URL)", "Ручной ввод команд"], horizontal=True)
 
-# Для Data Project – чекбокс объединения этапов (игнорируется для других)
-combine_phases = False
-if "dataproject.com" in url:
-    combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
+# ------------------------------------------------------------
+# Автоматический режим
+# ------------------------------------------------------------
+if mode == "Автоматический парсинг (по URL)":
+    url = st.text_input(
+        "Введите URL страницы с результатами (standings / classifica / таблица)",
+        "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
+    )
+    combine_phases = False
+    if "dataproject.com" in url:
+        combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
 
-if st.button("Парсить") and url:
-    with st.spinner("Загрузка данных..."):
-        try:
-            parser = get_parser_by_url(url)
-            df, _ = parser.fetch_stats(url, combine_phases=combine_phases)
-            if df is not None and not df.empty and 'Команда' in df.columns:
-                st.session_state.df_teams = df
-                st.success("Данные загружены")
+    if st.button("Парсить") and url:
+        parser = get_parser_by_url(url)
+        if parser is None:
+            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод команд.")
+        else:
+            with st.spinner("Загрузка данных..."):
+                try:
+                    df, error = parser.fetch_stats(url, combine_phases=combine_phases)
+                    if df is not None and not df.empty and 'Команда' in df.columns:
+                        st.session_state.df_teams = df
+                        st.success(f"Данные загружены. Команд: {len(df)}")
+                    else:
+                        st.warning(f"Не удалось загрузить таблицу: {error or 'неизвестная ошибка'}. Попробуйте ручной ввод.")
+                except Exception as e:
+                    st.error(f"Ошибка: {e}")
+
+# ------------------------------------------------------------
+# Ручной режим (с примером для Италии)
+# ------------------------------------------------------------
+elif mode == "Ручной ввод команд":
+    st.subheader("Введите данные команд вручную")
+    st.markdown("Укажите названия команд, их выигранные/проигранные сеты и очки в формате:")
+    st.markdown("`Название команды;выигранные_сеты:проигранные_сеты;забитые_очки:пропущенные_очки`")
+    st.caption("Пример: `Abba Pineto;66:32;2273:2089`")
+
+    # Данные с legavolley.it (актуальные на сезон 2025/26 Serie A2)
+    italy_example = """Abba Pineto;66:32;2273:2089
+Gruppo Consoli Sferc Brescia;66:36;2313:2159
+Tinet Prata di Pordenone;62:32;2185:2000
+Consar Ravenna;60:38;2283:2105
+Virtus Aversa;55:46;2324:2227
+Rinascita Lagonegro;45:59;2330:2271
+Banca Macerata Fisiomed MC;60:49;2219:2212
+Alva Inox 2 Emme Service Porto Viro;46:56;2257:2289
+Prisma La Cascina Taranto;43:51;2098:2138
+Romeo Sorrento;44:56;2215:2299
+Sviluppo Sud Catania;44:60;2231:2337
+Essence Hotels Fano;41:59;2155:2283
+Emma Villas Codyeco Lupi Siena;39:63;2202:2347
+Campi Reali Cantù;29:73;2072:2401"""
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        teams_input = st.text_area(
+            "Введите команды (каждая с новой строки):",
+            value=italy_example,
+            height=300,
+            help="Формат: Название;Сеты;Мячи"
+        )
+    with col2:
+        if st.button("📋 Заполнить пример Италии"):
+            # Обновляем текстовое поле через session_state
+            st.session_state['italy_input'] = italy_example
+            st.rerun()
+
+    # Если в session_state есть сохранённый пример, подставляем его
+    if 'italy_input' in st.session_state and teams_input != st.session_state.italy_input:
+        teams_input = st.session_state.italy_input
+
+    if st.button("Загрузить команды"):
+        data = []
+        lines = teams_input.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(';')
+            if len(parts) >= 3:
+                team = parts[0].strip()
+                sets = parts[1].strip()
+                points = parts[2].strip()
+                # Базовая валидация
+                if ':' not in sets or ':' not in points:
+                    st.warning(f"Пропущена строка: {line} (неверный формат сетов или очков)")
+                    continue
+                data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
             else:
-                st.warning("Не удалось загрузить данные. Проверьте URL и структуру страницы.")
-        except Exception as e:
-            st.error(f"Ошибка: {e}")
+                st.warning(f"Пропущена строка: {line} (ожидается 3 части через ';')")
+        if data:
+            st.session_state.df_teams = pd.DataFrame(data)
+            st.success(f"Загружено {len(data)} команд")
+        else:
+            st.error("Не удалось распознать ни одной команды. Проверьте формат.")
 
 # ------------------------------------------------------------
-# Отображение статистики и прогноза
+# Отображение таблицы и прогноза (общая часть)
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -90,7 +165,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 home_pts_w, home_pts_l = map(int, home_data['Мячи'].split(':'))
                 away_pts_w, away_pts_l = map(int, away_data['Мячи'].split(':'))
             except Exception as e:
-                st.error(f"Ошибка формата данных: {e}")
+                st.error(f"Ошибка формата данных: {e}. Ожидается формат 'число:число'")
                 st.stop()
 
             total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
@@ -103,6 +178,8 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.success(f"Фора на матч: **{handicap}** (в пользу хозяев)")
             elif handicap < 0:
                 st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
+            else:
+                st.info("Фора близка к нулю – команды примерно равны")
 
             home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
             away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
@@ -189,4 +266,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             st.info("Выберите две разные команды")
 else:
     if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
-        st.warning("Таблица с командами пуста. Проверьте правильность URL и наличие данных.")
+        st.warning("Таблица с командами пуста. Проверьте введённые данные.")
+    else:
+        st.info("Выберите режим и загрузите данные (автоматически или вручную).")
