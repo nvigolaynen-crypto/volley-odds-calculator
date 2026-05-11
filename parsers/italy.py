@@ -1,17 +1,19 @@
 import re
-import cloudscraper
+from curl_cffi import requests
 from bs4 import BeautifulSoup
 from .base_parser import BaseParser
 
 class ItalyParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        # Создаём scraper, который автоматически обходит Cloudflare и другие защиты
-        scraper = cloudscraper.create_scraper()
-
-        # Дополнительные заголовки для маскировки под реальный браузер
+        """
+        Парсит турнирную таблицу legavolley.it с обходом Cloudflare через curl_cffi.
+        """
+        # Заголовки как в реальном браузере Chrome
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+            'Cache-Control': 'max-age=0',
+            'Connection': 'keep-alive',
             'Referer': 'https://www.legavolley.it/',
             'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
             'Sec-Ch-Ua-Mobile': '?0',
@@ -21,35 +23,37 @@ class ItalyParser(BaseParser):
             'Sec-Fetch-Site': 'same-origin',
             'Sec-Fetch-User': '?1',
             'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
 
         try:
-            # Предварительный запрос главной страницы для получения cookies (опционально, но полезно)
-            scraper.get('https://www.legavolley.it/', timeout=10, headers=headers)
-            # Основной запрос к таблице
-            response = scraper.get(url, timeout=15, headers=headers)
-            response.raise_for_status()
+            # Создаём сессию с имитацией Chrome 120 (TLS-отпечаток)
+            # Параметр impersonate="chrome120" – ключевой для обхода блокировок
+            with requests.Session(impersonate="chrome120") as session:
+                # Предварительный запрос главной страницы (необязательно, но помогает)
+                session.get('https://www.legavolley.it/', headers=headers, timeout=15)
+                # Основной запрос к таблице
+                response = session.get(url, headers=headers, timeout=15)
+                response.raise_for_status()
+                html = response.text
         except Exception as e:
-            return None, f"Ошибка загрузки страницы: {e}"
+            return None, f"Ошибка загрузки страницы с curl_cffi: {e}"
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(html, 'html.parser')
 
-        # === Отладка: сохраняем HTML (можно удалить или закомментировать) ===
-        # with open('debug_italy.html', 'w', encoding='utf-8') as f:
-        #     f.write(response.text)
-
-        # Поиск таблицы
+        # Поиск таблицы (как и раньше)
         table = soup.find('table', id='GareGiornata')
         if not table:
             table = soup.find('table', attrs={'id': re.compile(r'GareGiornata|Classifica', re.I)})
         if not table:
             table = soup.find('table', class_=re.compile(r'classifica', re.I))
         if not table:
+            # Ищем в div с классом classifica
             div_class = soup.find('div', class_=re.compile(r'classifica', re.I))
             if div_class:
                 table = div_class.find('table')
         if not table:
-            return None, "Таблица не найдена. Возможно, изменилась структура страницы."
+            return None, "Таблица не найдена. Возможно, структура страницы изменилась."
 
         rows = table.find_all('tr', id='EvenRow')
         if not rows:
@@ -106,5 +110,5 @@ class ItalyParser(BaseParser):
         return df, None
 
     def fetch_head_to_head(self, team1: str, team2: str):
-        """Для legavolley.it автоматическая история встреч не реализована."""
+        """История встреч не парсится автоматически."""
         return None
