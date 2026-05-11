@@ -3,8 +3,8 @@ import pandas as pd
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 from parsers.italy import ItalyParser
-from parsers.poland import PolandParser   # если ещё нет – заглушка
-from parsers.turkey import TurkeyParser   # если ещё нет – заглушка
+from parsers.poland import PolandParser
+from parsers.turkey import TurkeyParser
 
 # ------------------------------------------------------------
 # Функция определения парсера по URL
@@ -29,10 +29,8 @@ def get_parser_by_url(url: str):
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
-# Инициализация состояния
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
-
 if 'h2h_manual' not in st.session_state:
     st.session_state.h2h_manual = {}
 
@@ -42,11 +40,11 @@ if 'h2h_manual' not in st.session_state:
 mode = st.radio("Выберите режим", ["Автоматический парсинг (по URL)", "Ручной ввод команд"], horizontal=True)
 
 # ------------------------------------------------------------
-# Автоматический режим
+# Автоматический парсинг
 # ------------------------------------------------------------
 if mode == "Автоматический парсинг (по URL)":
     url = st.text_input(
-        "Введите URL страницы с результатами (standings / classifica / таблица)",
+        "Введите URL страницы с результатами",
         "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
     )
     combine_phases = False
@@ -56,7 +54,7 @@ if mode == "Автоматический парсинг (по URL)":
     if st.button("Парсить") and url:
         parser = get_parser_by_url(url)
         if parser is None:
-            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод команд.")
+            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод.")
         else:
             with st.spinner("Загрузка данных..."):
                 try:
@@ -70,15 +68,13 @@ if mode == "Автоматический парсинг (по URL)":
                     st.error(f"Ошибка: {e}")
 
 # ------------------------------------------------------------
-# Ручной режим (с примером для Италии)
+# Ручной ввод с примером для Италии
 # ------------------------------------------------------------
 elif mode == "Ручной ввод команд":
     st.subheader("Введите данные команд вручную")
-    st.markdown("Укажите названия команд, их выигранные/проигранные сеты и очки в формате:")
-    st.markdown("`Название команды;выигранные_сеты:проигранные_сеты;забитые_очки:пропущенные_очки`")
+    st.markdown("Формат: `Название;Сеты;Мячи` (каждая команда с новой строки)")
     st.caption("Пример: `Abba Pineto;66:32;2273:2089`")
 
-    # Данные с legavolley.it (актуальные на сезон 2025/26 Serie A2)
     italy_example = """Abba Pineto;66:32;2273:2089
 Gruppo Consoli Sferc Brescia;66:36;2313:2159
 Tinet Prata di Pordenone;62:32;2185:2000
@@ -96,49 +92,35 @@ Campi Reali Cantù;29:73;2072:2401"""
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        teams_input = st.text_area(
-            "Введите команды (каждая с новой строки):",
-            value=italy_example,
-            height=300,
-            help="Формат: Название;Сеты;Мячи"
-        )
+        teams_input = st.text_area("Введите команды", value=italy_example, height=300)
     with col2:
         if st.button("📋 Заполнить пример Италии"):
-            # Обновляем текстовое поле через session_state
-            st.session_state['italy_input'] = italy_example
+            teams_input = italy_example
             st.rerun()
-
-    # Если в session_state есть сохранённый пример, подставляем его
-    if 'italy_input' in st.session_state and teams_input != st.session_state.italy_input:
-        teams_input = st.session_state.italy_input
 
     if st.button("Загрузить команды"):
         data = []
-        lines = teams_input.strip().split('\n')
-        for line in lines:
+        for line in teams_input.strip().split('\n'):
             line = line.strip()
             if not line:
                 continue
             parts = line.split(';')
             if len(parts) >= 3:
-                team = parts[0].strip()
-                sets = parts[1].strip()
-                points = parts[2].strip()
-                # Базовая валидация
-                if ':' not in sets or ':' not in points:
-                    st.warning(f"Пропущена строка: {line} (неверный формат сетов или очков)")
-                    continue
-                data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
+                team, sets, points = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                if ':' in sets and ':' in points:
+                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
+                else:
+                    st.warning(f"Пропущена строка (неверный формат): {line}")
             else:
-                st.warning(f"Пропущена строка: {line} (ожидается 3 части через ';')")
+                st.warning(f"Пропущена строка (ожидается 3 части): {line}")
         if data:
             st.session_state.df_teams = pd.DataFrame(data)
             st.success(f"Загружено {len(data)} команд")
         else:
-            st.error("Не удалось распознать ни одной команды. Проверьте формат.")
+            st.error("Не удалось распознать данные. Проверьте формат.")
 
 # ------------------------------------------------------------
-# Отображение таблицы и прогноза (общая часть)
+# Отображение прогноза (общая логика)
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -165,14 +147,13 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 home_pts_w, home_pts_l = map(int, home_data['Мячи'].split(':'))
                 away_pts_w, away_pts_l = map(int, away_data['Мячи'].split(':'))
             except Exception as e:
-                st.error(f"Ошибка формата данных: {e}. Ожидается формат 'число:число'")
+                st.error(f"Ошибка формата данных: {e}")
                 st.stop()
 
             total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
             home_avg_diff = (home_pts_w - home_pts_l) / total_matches
             away_avg_diff = (away_pts_w - away_pts_l) / total_matches
-            expected_diff = home_avg_diff - away_avg_diff
-            handicap = round(expected_diff, 1)
+            handicap = round(home_avg_diff - away_avg_diff, 1)
 
             if handicap > 0:
                 st.success(f"Фора на матч: **{handicap}** (в пользу хозяев)")
@@ -188,84 +169,60 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
 
             st.write(f"**Прогноз победителя по сётам:** {predicted_winner}")
             st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-            st.caption("Прогноз основан на статистике сезона (может отличаться)")
+            st.caption("Прогноз основан на статистике сезона")
 
+            # Ручной ввод личных встреч
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
-
-            with st.expander("➕ Добавить личную встречу вручную"):
+            with st.expander("➕ Добавить личную встречу"):
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    manual_home = st.selectbox("Хозяева", teams, key="manual_home")
+                    manual_home = st.selectbox("Хозяева", teams, key="h2h_home")
                 with col_b:
-                    manual_away = st.selectbox("Гости", teams, key="manual_away")
+                    manual_away = st.selectbox("Гости", teams, key="h2h_away")
                 with col_c:
-                    manual_sets = st.text_input("Счёт по сетам (например, 3:1)", key="manual_sets", placeholder="3:1")
-                manual_points = st.number_input("Фора по очкам (положительное – победа хозяев, отрицательное – победа гостей)", step=0.5, format="%.1f", key="manual_points")
-                manual_date = st.text_input("Дата (необязательно)", placeholder="01.01.2026", key="manual_date")
-                if st.button("Добавить личную встречу"):
-                    if manual_home and manual_away and manual_points is not None:
-                        key = (manual_home, manual_away)
-                        if key not in st.session_state.h2h_manual:
-                            st.session_state.h2h_manual[key] = []
-                        st.session_state.h2h_manual[key].append({
-                            'Дата': manual_date if manual_date else "(ручной ввод)",
-                            'Хозяева': manual_home,
-                            'Гости': manual_away,
-                            'Счёт по сетам': manual_sets,
-                            'Фора по очкам': manual_points
-                        })
-                        st.success(f"Добавлен матч {manual_home} – {manual_away}")
-                        st.rerun()
-                    else:
-                        st.error("Заполните хозяев, гостей и фору по очкам")
+                    manual_sets = st.text_input("Счёт по сетам", placeholder="3:1")
+                manual_points = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5)
+                manual_date = st.text_input("Дата", placeholder="01.01.2026")
+                if st.button("Добавить"):
+                    key = (manual_home, manual_away)
+                    st.session_state.h2h_manual.setdefault(key, []).append({
+                        'Дата': manual_date or "(дата не указана)",
+                        'Хозяева': manual_home,
+                        'Гости': manual_away,
+                        'Счёт по сетам': manual_sets,
+                        'Фора по очкам': manual_points
+                    })
+                    st.success("Добавлено")
+                    st.rerun()
 
+            # Отображение истории
             key_pair = (home, away)
             reverse_key = (away, home)
             h2h_data = []
-
-            if key_pair in st.session_state.h2h_manual:
-                for m in st.session_state.h2h_manual[key_pair]:
-                    h2h_data.append({
-                        'Дата': m['Дата'],
-                        'Хозяева': m['Хозяева'],
-                        'Гости': m['Гости'],
-                        'Счёт по сетам': m.get('Счёт по сетам', ''),
-                        'Фора по очкам': m['Фора по очкам']
-                    })
-            if reverse_key in st.session_state.h2h_manual:
-                for m in st.session_state.h2h_manual[reverse_key]:
-                    new_points = -m['Фора по очкам']
-                    h2h_data.append({
-                        'Дата': m['Дата'],
-                        'Хозяева': home,
-                        'Гости': away,
-                        'Счёт по сетам': m.get('Счёт по сетам', ''),
-                        'Фора по очкам': new_points
-                    })
+            for m in st.session_state.h2h_manual.get(key_pair, []):
+                h2h_data.append(m)
+            for m in st.session_state.h2h_manual.get(reverse_key, []):
+                new_m = m.copy()
+                new_m['Хозяева'] = home
+                new_m['Гости'] = away
+                new_m['Фора по очкам'] = -m['Фора по очкам']
+                h2h_data.append(new_m)
 
             if h2h_data:
                 df_h2h = pd.DataFrame(h2h_data)
-                df_h2h = df_h2h.drop_duplicates(subset=['Дата', 'Хозяева', 'Гости'])
                 st.subheader(f"История встреч: {home} – {away}")
-                df_h2h['Фора (очки)'] = df_h2h['Фора по очкам'].apply(lambda x: f"{x}" if x <= 0 else f"{x}")
-                cols_to_show = ['Дата', 'Хозяева', 'Гости']
-                if df_h2h['Счёт по сетам'].any():
-                    cols_to_show.append('Счёт по сетам')
-                cols_to_show.append('Фора (очки)')
-                st.dataframe(df_h2h[cols_to_show])
-                if st.button(f"Очистить ручные данные для {home} – {away}"):
-                    if key_pair in st.session_state.h2h_manual:
-                        del st.session_state.h2h_manual[key_pair]
-                    if reverse_key in st.session_state.h2h_manual:
-                        del st.session_state.h2h_manual[reverse_key]
+                st.dataframe(df_h2h[['Дата', 'Хозяева', 'Гости', 'Счёт по сетам', 'Фора по очкам']])
+                if st.button("Очистить историю этой пары"):
+                    st.session_state.h2h_manual.pop(key_pair, None)
+                    st.session_state.h2h_manual.pop(reverse_key, None)
                     st.rerun()
             else:
-                st.info("Нет данных о личных встречах. Добавьте вручную через раздел выше.")
+                st.info("Нет данных о личных встречах. Добавьте вручную выше.")
         else:
             st.info("Выберите две разные команды")
 else:
     if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
-        st.warning("Таблица с командами пуста. Проверьте введённые данные.")
+        st.warning("Таблица команд пуста. Проверьте ввод.")
     else:
-        st.info("Выберите режим и загрузите данные (автоматически или вручную).")
+        st.info("Выберите режим и загрузите данные.")
