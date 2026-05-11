@@ -45,7 +45,7 @@ mode = st.radio("Выберите режим", ["Автоматический п
 if mode == "Автоматический парсинг (по URL)":
     url = st.text_input(
         "Введите URL страницы с результатами",
-        "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
+        "https://www.legavolley.it/classifica/?IdCampionato=975"
     )
     combine_phases = False
     if "dataproject.com" in url:
@@ -90,13 +90,15 @@ Essence Hotels Fano;41:59;2155:2283
 Emma Villas Codyeco Lupi Siena;39:63;2202:2347
 Campi Reali Cantù;29:73;2072:2401"""
 
+    teams_input = st.text_area("Введите команды", value=italy_example, height=300)
+
     col1, col2 = st.columns([3, 1])
-    with col1:
-        teams_input = st.text_area("Введите команды", value=italy_example, height=300)
     with col2:
         if st.button("📋 Заполнить пример Италии"):
-            teams_input = italy_example
+            st.session_state['italy_example'] = italy_example
             st.rerun()
+    if 'italy_example' in st.session_state and teams_input != st.session_state.italy_example:
+        teams_input = st.session_state.italy_example
 
     if st.button("Загрузить команды"):
         data = []
@@ -171,7 +173,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
             st.caption("Прогноз основан на статистике сезона")
 
-            # Ручной ввод личных встреч
+            # ----- Ручной ввод личных встреч -----
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
             with st.expander("➕ Добавить личную встречу"):
