@@ -3,9 +3,16 @@ from abc import ABC, abstractmethod
 class BaseParser(ABC):
     @abstractmethod
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        """Возвращает (DataFrame, error_message) с колонками Команда, Сеты, Мячи"""
+        """
+        Парсит турнирную таблицу.
+        Возвращает (pandas.DataFrame, error_message)
+        DataFrame должен содержать колонки: 'Команда', 'Сеты', 'Мячи'
+        """
         pass
 
     def fetch_head_to_head(self, team1: str, team2: str):
-        """Опционально: возвращает историю личных встреч (DataFrame). По умолчанию – None."""
+        """
+        Опционально: парсит историю личных встреч.
+        По умолчанию возвращает None (не реализовано).
+        """
         return None
