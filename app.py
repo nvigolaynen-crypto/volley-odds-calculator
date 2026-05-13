@@ -4,7 +4,7 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Функция автоматического определения парсера по URL
+# Функция определения парсера по URL
 # ------------------------------------------------------------
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
@@ -15,12 +15,12 @@ def get_parser_by_url(url: str):
         return None
 
 # ------------------------------------------------------------
-# Функция парсинга таблицы и получения списка команд
+# Функция загрузки таблицы
 # ------------------------------------------------------------
-def parse_teams_list(url, combine_phases):
+def load_teams(url, combine_phases):
     parser = get_parser_by_url(url)
     if parser is None:
-        return None, "Ссылка не поддерживается. Используйте volley.ru или dataproject.com"
+        return None, "Неподдерживаемый URL. Используйте volley.ru или dataproject.com"
     df, error = parser.fetch_stats(url, combine_phases=combine_phases)
     if df is not None and not df.empty and 'Команда' in df.columns:
         return df, None
@@ -40,48 +40,53 @@ if 'h2h_manual' not in st.session_state:
     st.session_state.h2h_manual = {}
 if 'manual_mode' not in st.session_state:
     st.session_state.manual_mode = False
+if 'url' not in st.session_state:
+    st.session_state.url = ""
+if 'combine_phases' not in st.session_state:
+    st.session_state.combine_phases = False
 
 # ------------------------------------------------------------
-# Основная форма
+# Форма загрузки данных
 # ------------------------------------------------------------
-with st.form("predict_form"):
+with st.form("load_form"):
     st.subheader("Ссылка на турнирную таблицу")
-    url = st.text_input(
-        "URL",
-        placeholder="https://volley.ru/... или https://ossrb-web.dataproject.com/CompetitionStandings.aspx?...",
-        value="https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
-    )
+    url_input = st.text_input("URL", value=st.session_state.url, placeholder="https://volley.ru/... или https://...dataproject.com...")
     
-    col_checks = st.columns(2)
-    with col_checks[0]:
-        manual_input = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
-    with col_checks[1]:
-        combine_phases = False
-        if "dataproject.com" in url:
-            combine_phases = st.checkbox("Складывать все этапы (только Data Project)", value=False)
+    combine_phases = False
+    if "dataproject.com" in url_input:
+        combine_phases = st.checkbox("Складывать все этапы (только Data Project)", value=st.session_state.combine_phases)
     
-    # Если пользователь переключил чекбокс ручного ввода – меняем состояние
-    if manual_input != st.session_state.manual_mode:
-        st.session_state.manual_mode = manual_input
-        st.rerun()
+    load_clicked = st.form_submit_button("📥 Загрузить данные")
     
-    # Загружаем данные из парсера, если ручной режим выключен и есть URL
-    if not st.session_state.manual_mode and url:
-        with st.spinner("Загрузка данных..."):
-            df_teams, error = parse_teams_list(url, combine_phases)
-            if df_teams is not None:
-                st.session_state.df_teams = df_teams
-                st.success(f"Загружено {len(df_teams)} команд")
+    if load_clicked and url_input:
+        with st.spinner("Загрузка..."):
+            df, error = load_teams(url_input, combine_phases)
+            if df is not None:
+                st.session_state.df_teams = df
+                st.session_state.url = url_input
+                st.session_state.combine_phases = combine_phases
+                st.success(f"Загружено {len(df)} команд")
             else:
                 st.error(f"Ошибка: {error}")
                 st.session_state.df_teams = None
+
+# ------------------------------------------------------------
+# Основная форма для ввода команд и расчёта
+# ------------------------------------------------------------
+with st.form("predict_form"):
+    st.subheader("Команды")
     
-    # Две колонки для домашней и гостевой команды
+    # Чекбокс ручного ввода
+    manual_mode = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
+    if manual_mode != st.session_state.manual_mode:
+        st.session_state.manual_mode = manual_mode
+        st.rerun()
+    
     col_home, col_away = st.columns(2)
     
-    # ---------- Домашняя команда ----------
+    # Домашняя команда
     with col_home:
-        st.subheader("ДОМАШНЯЯ КОМАНДА")
+        st.markdown("**ДОМАШНЯЯ КОМАНДА**")
         if st.session_state.manual_mode:
             home_name = st.text_input("Название", key="home_name")
             home_sets_v = st.number_input("Sets V (выигранные сеты)", min_value=0, step=1, key="home_sets_v")
@@ -93,25 +98,22 @@ with st.form("predict_form"):
             if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
                 teams_list = st.session_state.df_teams['Команда'].tolist()
                 home_name = st.selectbox("Название", teams_list, key="home_select")
-                # Получаем данные из таблицы
                 home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home_name].iloc[0]
                 sets_str = home_row['Сеты']
                 balls_str = home_row['Мячи']
                 home_sets_v, home_sets_p = map(int, sets_str.split(':'))
                 home_balls_v, home_balls_p = map(int, balls_str.split(':'))
                 home_data_ok = True
+                st.caption(f"Сеты: {home_sets_v}:{home_sets_p} | Мячи: {home_balls_v}:{home_balls_p}")
             else:
-                st.warning("Нет загруженных команд. Проверьте ссылку или включите ручной ввод.")
+                st.warning("Сначала загрузите данные через форму выше или включите ручной ввод.")
                 home_name = ""
                 home_sets_v = home_sets_p = home_balls_v = home_balls_p = 0
                 home_data_ok = False
-        
-        if not st.session_state.manual_mode and st.session_state.df_teams is not None:
-            st.caption(f"Сеты: {home_sets_v}:{home_sets_p} | Мячи: {home_balls_v}:{home_balls_p}")
     
-    # ---------- Гостевая команда ----------
+    # Гостевая команда
     with col_away:
-        st.subheader("ГОСТЕВАЯ КОМАНДА")
+        st.markdown("**ГОСТЕВАЯ КОМАНДА**")
         if st.session_state.manual_mode:
             away_name = st.text_input("Название", key="away_name")
             away_sets_v = st.number_input("Sets V (выигранные сеты)", min_value=0, step=1, key="away_sets_v")
@@ -129,22 +131,20 @@ with st.form("predict_form"):
                 away_sets_v, away_sets_p = map(int, sets_str.split(':'))
                 away_balls_v, away_balls_p = map(int, balls_str.split(':'))
                 away_data_ok = True
+                st.caption(f"Сеты: {away_sets_v}:{away_sets_p} | Мячи: {away_balls_v}:{away_balls_p}")
             else:
-                st.warning("Нет загруженных команд.")
+                st.warning("Сначала загрузите данные или включите ручной ввод.")
                 away_name = ""
                 away_sets_v = away_sets_p = away_balls_v = away_balls_p = 0
                 away_data_ok = False
-        
-        if not st.session_state.manual_mode and st.session_state.df_teams is not None:
-            st.caption(f"Сеты: {away_sets_v}:{away_sets_p} | Мячи: {away_balls_v}:{away_balls_p}")
     
     # Кнопка расчёта
-    submitted = st.form_submit_button("Рассчитать котировки", use_container_width=True)
+    calc_clicked = st.form_submit_button("Рассчитать котировки", use_container_width=True)
 
 # ------------------------------------------------------------
-# Расчёт и вывод прогнозов (после отправки формы)
+# Расчёт прогноза
 # ------------------------------------------------------------
-if submitted:
+if calc_clicked:
     if not home_data_ok or not away_data_ok:
         st.error("Заполните данные для обеих команд (названия и статистику).")
     elif home_name == away_name:
@@ -179,10 +179,11 @@ if submitted:
             st.info("Фора близка к нулю – команды примерно равны")
         st.caption("Фора рассчитана как средняя разница очков за матч (хозяева − гости).")
         
-        # ----- Личные встречи (оставляем для истории) -----
+        # ---------- Личные встречи (ручной ввод) ----------
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
-        # Список команд для выбора – используем те, что есть в df_teams или только текущие две
+        
+        # Формируем список всех команд для выбора
         all_teams = []
         if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
             all_teams = st.session_state.df_teams['Команда'].tolist()
@@ -199,7 +200,7 @@ if submitted:
                 manual_sets = st.text_input("Счёт по сетам", placeholder="3:1")
             manual_points = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5)
             manual_date = st.text_input("Дата", placeholder="01.01.2026")
-            if st.button("Добавить"):
+            if st.button("Добавить", key="add_h2h"):
                 key = (manual_home, manual_away)
                 st.session_state.h2h_manual.setdefault(key, []).append({
                     'Дата': manual_date or "(дата не указана)",
@@ -211,7 +212,7 @@ if submitted:
                 st.success("Добавлено")
                 st.rerun()
         
-        # Отображение истории для текущей пары
+        # Отображение истории текущей пары
         key_pair = (home_name, away_name)
         reverse_key = (away_name, home_name)
         h2h_data = []
