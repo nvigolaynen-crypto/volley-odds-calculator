@@ -103,7 +103,7 @@ elif mode == "Ручной ввод команд":
         st.info("Нет добавленных команд. Используйте форму выше.")
 
 # ------------------------------------------------------------
-# Прогноз
+# Прогноз (всегда показываем оба метода)
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -111,12 +111,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
     else:
         teams = st.session_state.df_teams['Команда'].tolist()
         st.divider()
-        st.subheader("⚙️ Настройки прогноза")
-        predict_method = st.radio(
-            "Прогноз на основе:",
-            ["По сетам (победа/поражение)", "По очкам (разница очков за матч)"],
-            horizontal=True
-        )
         st.subheader("📊 Прогноз на матч")
         col1, col2 = st.columns(2)
         with col1:
@@ -138,32 +132,35 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.error(f"Ошибка формата данных: {e}")
                 st.stop()
 
-            if predict_method == "По сетам (победа/поражение)":
-                home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
-                away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
-                predicted_winner = home if home_winrate > away_winrate else away
-                prob_home = home_winrate
-                margin = 0.05
-                odds_home = (1 - margin) / prob_home if prob_home > 0 else 0
-                st.write(f"**Прогноз победителя по сётам:** {predicted_winner}")
-                st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-                st.write(f"**Коэффициент на победу {home} (с маржой 5%):** {odds_home:.2f}")
-                st.caption("Прогноз основан на проценте выигранных сетов. Коэффициент рассчитан с заложенной маржой букмекера 5%.")
-            else:  # по очкам
-                total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
-                home_avg_diff = (home_pts_w - home_pts_l) / total_matches
-                away_avg_diff = (away_pts_w - away_pts_l) / total_matches
-                expected_diff = home_avg_diff - away_avg_diff
-                handicap = round(expected_diff, 1)
-                if handicap > 0:
-                    st.success(f"Фора на матч: **{handicap}** (в пользу хозяев)")
-                elif handicap < 0:
-                    st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
-                else:
-                    st.info("Фора близка к нулю – команды примерно равны")
-                st.caption("Прогноз основан на разнице очков за матч (средняя фора).")
+            # ---------- ПРОГНОЗ ПО СЕТАМ ----------
+            st.subheader("📈 Прогноз по сетам")
+            home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
+            away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
+            predicted_winner = home if home_winrate > away_winrate else away
+            prob_home = home_winrate
+            margin = 0.05
+            odds_home = (1 - margin) / prob_home if prob_home > 0 else 0
+            st.write(f"**Прогноз победителя:** {predicted_winner}")
+            st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
+            st.write(f"**Коэффициент на победу {home} (с маржой 5%):** {odds_home:.2f}")
+            st.caption("Прогноз основан на проценте выигранных сетов. Коэффициент рассчитан с заложенной маржой букмекера 5%.")
 
-            # ----- Личные встречи -----
+            # ---------- ПРОГНОЗ ПО ОЧКАМ (ФОРА) ----------
+            st.subheader("⚖️ Прогноз по очкам (фора)")
+            total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
+            home_avg_diff = (home_pts_w - home_pts_l) / total_matches
+            away_avg_diff = (away_pts_w - away_pts_l) / total_matches
+            expected_diff = home_avg_diff - away_avg_diff
+            handicap = round(expected_diff, 1)
+            if handicap > 0:
+                st.success(f"**Фора на матч:** {handicap} (в пользу хозяев)")
+            elif handicap < 0:
+                st.success(f"**Фора на матч:** {handicap} (в пользу гостей)")
+            else:
+                st.info("Фора близка к нулю – команды примерно равны")
+            st.caption("Фора рассчитана как средняя разница очков за матч (хозяева − гости).")
+
+            # ---------- ЛИЧНЫЕ ВСТРЕЧИ ----------
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
             with st.expander("➕ Добавить личную встречу"):
