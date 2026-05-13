@@ -4,12 +4,12 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Функция определения парсера по выбранной лиге
+# Функция автоматического определения парсера по URL
 # ------------------------------------------------------------
-def get_parser(league: str):
-    if league == "Россия (volley.ru)":
+def get_parser_by_url(url: str):
+    if "volley.ru" in url:
         return RussiaVolleyRuParser()
-    elif league == "Data Project":
+    elif "dataproject.com" in url:
         return DataProjectParser()
     else:
         return None
@@ -27,66 +27,55 @@ if 'h2h_manual' not in st.session_state:
     st.session_state.h2h_manual = {}
 
 # ------------------------------------------------------------
-# Боковая панель для выбора режима загрузки данных
+# Режимы работы (вкладки)
 # ------------------------------------------------------------
-st.sidebar.header("Загрузка данных команд")
-
-load_method = st.sidebar.radio(
-    "Способ загрузки",
-    ["Автоматический парсинг (выберите лигу)", "Ручной ввод команд"]
-)
+mode = st.radio("Выберите режим", ["Автоматический парсинг (по URL)", "Ручной ввод команд"], horizontal=True)
 
 # ------------------------------------------------------------
-# 1. Автоматический парсинг
+# Режим 1: Автоматический парсинг
 # ------------------------------------------------------------
-if load_method == "Автоматический парсинг (выберите лигу)":
-    league = st.sidebar.selectbox(
-        "Выберите лигу",
-        ["Россия (volley.ru)", "Data Project"]
+if mode == "Автоматический парсинг (по URL)":
+    url = st.text_input(
+        "Введите URL страницы с результатами (standings / classifica / таблица)",
+        "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
     )
     
-    default_url = ""
-    if league == "Россия (volley.ru)":
-        default_url = "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
-    elif league == "Data Project":
-        default_url = "https://dataproject.com/..."  # замените на реальный URL
-    
-    url = st.sidebar.text_input("URL страницы с таблицей", default_url)
-    
+    # Для Data Project – чекбокс объединения этапов (показывается только если в URL есть dataproject)
     combine_phases = False
     if "dataproject.com" in url:
-        combine_phases = st.sidebar.checkbox("Складывать все этапы (только Data Project)", value=False)
+        combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
     
-    if st.sidebar.button("Загрузить данные через парсер"):
-        parser = get_parser(league)
+    if st.button("Парсить") and url:
+        parser = get_parser_by_url(url)
         if parser is None:
-            st.sidebar.error("Парсер не найден")
+            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод команд.")
         else:
-            with st.spinner("Загрузка..."):
+            with st.spinner("Загрузка данных..."):
                 try:
                     df, error = parser.fetch_stats(url, combine_phases=combine_phases)
                     if df is not None and not df.empty and 'Команда' in df.columns:
                         st.session_state.df_teams = df
-                        st.sidebar.success(f"Загружено {len(df)} команд")
+                        st.success(f"Данные загружены. Команд: {len(df)}")
                     else:
-                        st.sidebar.warning(f"Ошибка: {error}")
+                        st.warning(f"Не удалось загрузить таблицу: {error or 'неизвестная ошибка'}. Попробуйте ручной ввод.")
                 except Exception as e:
-                    st.sidebar.error(f"Ошибка: {e}")
+                    st.error(f"Ошибка: {e}")
 
 # ------------------------------------------------------------
-# 2. Ручной ввод команд (табличный)
+# Режим 2: Ручной ввод команд
 # ------------------------------------------------------------
-elif load_method == "Ручной ввод команд":
-    st.sidebar.subheader("Добавление команды вручную")
+elif mode == "Ручной ввод команд":
+    st.subheader("Добавление команды вручную")
     
     # Форма для добавления одной команды
-    with st.sidebar.form(key="add_team_form"):
-        team_name = st.text_input("Название команды")
-        col1, col2 = st.columns(2)
+    with st.form(key="add_team_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
         with col1:
+            team_name = st.text_input("Название команды")
+        with col2:
             sets_won = st.number_input("Выигранные сеты", min_value=0, step=1, value=0)
             pts_won = st.number_input("Выигранные очки", min_value=0, step=1, value=0)
-        with col2:
+        with col3:
             sets_lost = st.number_input("Проигранные сеты", min_value=0, step=1, value=0)
             pts_lost = st.number_input("Проигранные очки", min_value=0, step=1, value=0)
         
@@ -95,7 +84,7 @@ elif load_method == "Ручной ввод команд":
         if submitted and team_name:
             # Проверяем, существует ли уже такая команда
             if st.session_state.df_teams is not None and team_name in st.session_state.df_teams['Команда'].values:
-                st.sidebar.warning("Такая команда уже есть")
+                st.warning("Такая команда уже есть")
             else:
                 new_row = pd.DataFrame({
                     'Команда': [team_name],
@@ -106,53 +95,49 @@ elif load_method == "Ручной ввод команд":
                     st.session_state.df_teams = new_row
                 else:
                     st.session_state.df_teams = pd.concat([st.session_state.df_teams, new_row], ignore_index=True)
-                st.sidebar.success(f"Команда {team_name} добавлена")
+                st.success(f"Команда {team_name} добавлена")
                 st.rerun()
     
-    # Показываем текущий список команд с возможностью удаления
+    # Отображение текущего списка команд с возможностью удаления
     if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
-        st.sidebar.subheader("Текущие команды")
-        for idx, row in st.session_state.df_teams.iterrows():
-            col1, col2 = st.sidebar.columns([3, 1])
-            col1.write(f"{row['Команда']} – Сеты: {row['Сеты']}, Мячи: {row['Мячи']}")
-            if col2.button("🗑", key=f"del_{idx}"):
-                st.session_state.df_teams = st.session_state.df_teams.drop(idx).reset_index(drop=True)
-                st.rerun()
+        st.subheader("Текущие команды")
+        cols_to_show = ['Команда', 'Сеты', 'Мячи']
+        st.dataframe(st.session_state.df_teams[cols_to_show], use_container_width=True)
+        
+        # Кнопки удаления для каждой команды
+        st.subheader("Удалить команду")
+        team_to_delete = st.selectbox("Выберите команду для удаления", st.session_state.df_teams['Команда'].tolist())
+        if st.button("🗑 Удалить выбранную команду"):
+            st.session_state.df_teams = st.session_state.df_teams[st.session_state.df_teams['Команда'] != team_to_delete].reset_index(drop=True)
+            st.rerun()
     else:
-        st.sidebar.info("Нет добавленных команд. Используйте форму выше.")
+        st.info("Нет добавленных команд. Используйте форму выше для добавления.")
 
 # ------------------------------------------------------------
-# Настройки прогноза
-# ------------------------------------------------------------
-st.sidebar.divider()
-st.sidebar.header("Настройки прогноза")
-
-predict_method = st.sidebar.radio(
-    "Прогноз на основе:",
-    ["По сетам (победа/поражение)", "По очкам (разница очков за матч)"]
-)
-
-# ------------------------------------------------------------
-# Отображение таблицы команд и прогноза
+# Отображение прогноза (общая логика для обоих режимов)
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
         st.error("Некорректный формат данных: отсутствует колонка 'Команда'")
     else:
         teams = st.session_state.df_teams['Команда'].tolist()
-        st.subheader("📊 Таблица команд")
-        st.dataframe(st.session_state.df_teams, use_container_width=True)
         
         st.divider()
-        st.subheader("⚡ Прогноз на матч")
+        st.subheader("⚙️ Настройки прогноза")
+        predict_method = st.radio(
+            "Прогноз на основе:",
+            ["По сетам (победа/поражение)", "По очкам (разница очков за матч)"],
+            horizontal=True
+        )
         
+        st.subheader("📊 Прогноз на матч")
         col1, col2 = st.columns(2)
         with col1:
-            home = st.selectbox("Домашняя команда", teams)
+            home = st.selectbox("Домашняя команда", teams, key="home_team")
             home_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
             st.caption(f"Сеты: {home_data['Сеты']} | Мячи: {home_data['Мячи']}")
         with col2:
-            away = st.selectbox("Гостевая команда", teams)
+            away = st.selectbox("Гостевая команда", teams, key="away_team")
             away_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             st.caption(f"Сеты: {away_data['Сеты']} | Мячи: {away_data['Мячи']}")
         
@@ -168,7 +153,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             
             total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
             
-            # Расчёт в зависимости от выбранного метода
             if predict_method == "По сетам (победа/поражение)":
                 home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
                 away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
@@ -178,7 +162,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
                 st.caption("Прогноз основан на проценте выигранных сетов")
                 
-                # Фора по сетам (ожидаемая разница выигранных сетов)
+                # Ожидаемая разница сетов (для информативности)
                 expected_sets_diff = (home_sets_w - home_sets_l) - (away_sets_w - away_sets_l)
                 st.success(f"**Ожидаемая разница сетов:** {expected_sets_diff:+.1f} (в пользу хозяев, если положительная)")
             
@@ -194,16 +178,17 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 else:
                     st.info("Фора близка к нулю – команды примерно равны")
                 
+                # Дополнительно показываем прогноз по сетам
                 home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
                 away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
                 predicted_winner = home if home_winrate > away_winrate else away
                 prob_home = 1 / (1 + (away_winrate / max(home_winrate, 0.01)))
-                st.write(f"**Прогноз победителя по сётам:** {predicted_winner} (вспомогательно)")
+                st.write(f"**Прогноз победителя по сётам (вспомогательно):** {predicted_winner}")
                 st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-                st.caption("Прогноз основан на разнице очков за матч")
+                st.caption("Фора рассчитана по разнице очков за матч")
             
             # --------------------------------------------------------
-            # Ручной ввод личных встреч (без изменений)
+            # Ручной ввод личных встреч (оставляем)
             # --------------------------------------------------------
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
@@ -255,4 +240,4 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         else:
             st.info("Выберите две разные команды")
 else:
-    st.info("Нет загруженных команд. Используйте боковую панель для загрузки данных (автоматический парсер или ручной ввод).")
+    st.info("Нет загруженных команд. Используйте автоматический парсинг (введите URL) или ручной ввод.")
