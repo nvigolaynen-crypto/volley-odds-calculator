@@ -63,7 +63,7 @@ with st.form("load_form"):
                 st.session_state.url = url_input
                 st.session_state.combine_phases = combine_phases
                 st.success(f"Загружено {len(df)} команд")
-                st.rerun()   # <-- принудительно обновляем страницу
+                st.rerun()
             else:
                 st.error(f"Ошибка: {error}")
                 st.session_state.df_teams = None
@@ -77,7 +77,7 @@ with st.form("predict_form"):
     manual_mode = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
     if manual_mode != st.session_state.manual_mode:
         st.session_state.manual_mode = manual_mode
-        st.rerun()   # <-- обновляем страницу для переключения режима
+        st.rerun()
     
     col_home, col_away = st.columns(2)
     
@@ -146,33 +146,44 @@ if calc_clicked:
     elif home_name == away_name:
         st.error("Выберите разные команды.")
     else:
-        # Прогноз по сетам
+        # Прогноз по сетам: определяем фаворита (независимо от того, хозяин или гость)
         st.subheader("📈 Прогноз по сетам")
-        home_wr = home_sets_v / (home_sets_v + home_sets_p) if (home_sets_v + home_sets_p) > 0 else 0.5
-        away_wr = away_sets_v / (away_sets_v + away_sets_p) if (away_sets_v + away_sets_p) > 0 else 0.5
-        winner = home_name if home_wr > away_wr else away_name
-        prob = home_wr
-        odds = (1 - 0.05) / prob if prob > 0 else 0
-        st.write(f"**Прогноз победителя:** {winner}")
-        st.write(f"**Вероятность победы {home_name}:** {prob:.1%}")
-        st.write(f"**Коэффициент на победу {home_name} (с маржой 5%):** {odds:.2f}")
-        st.caption("Основано на проценте выигранных сетов.")
+        home_winrate = home_sets_v / (home_sets_v + home_sets_p) if (home_sets_v + home_sets_p) > 0 else 0.5
+        away_winrate = away_sets_v / (away_sets_v + away_sets_p) if (away_sets_v + away_sets_p) > 0 else 0.5
+        
+        if home_winrate > away_winrate:
+            favorite = home_name
+            fav_winrate = home_winrate
+            underdog = away_name
+        else:
+            favorite = away_name
+            fav_winrate = away_winrate
+            underdog = home_name
+        
+        margin = 0.05
+        odds_fav = (1 - margin) / fav_winrate if fav_winrate > 0 else 0
+        
+        st.write(f"**Фаворит:** {favorite}")
+        st.write(f"**Вероятность победы фаворита:** {fav_winrate:.1%}")
+        st.write(f"**Коэффициент на победу {favorite} (с маржой 5%):** {odds_fav:.2f}")
+        st.caption("Прогноз основан на проценте выигранных сетов. Коэффициент рассчитан с заложенной маржой букмекера 5%.")
 
-        # Прогноз по очкам (фора)
+        # Прогноз по очкам (фора) – относительно хозяев
         st.subheader("⚖️ Прогноз по очкам (фора)")
-        total = (home_sets_v + home_sets_p) // 3 if (home_sets_v + home_sets_p) > 0 else 30
-        home_avg = (home_balls_v - home_balls_p) / total
-        away_avg = (away_balls_v - away_balls_p) / total
-        handicap = round(home_avg - away_avg, 1)
+        total_matches = (home_sets_v + home_sets_p) // 3 if (home_sets_v + home_sets_p) > 0 else 30
+        home_avg_diff = (home_balls_v - home_balls_p) / total_matches if total_matches > 0 else 0
+        away_avg_diff = (away_balls_v - away_balls_p) / total_matches if total_matches > 0 else 0
+        expected_diff = home_avg_diff - away_avg_diff
+        handicap = round(expected_diff, 1)
         if handicap > 0:
             st.success(f"**Фора на матч:** {handicap} (в пользу хозяев)")
         elif handicap < 0:
             st.success(f"**Фора на матч:** {handicap} (в пользу гостей)")
         else:
             st.info("Фора близка к нулю – команды примерно равны")
-        st.caption("Средняя разница очков за матч (хозяева − гости).")
+        st.caption("Фора рассчитана как средняя разница очков за матч (хозяева − гости).")
 
-        # Личные встречи (без изменений, код такой же как в предыдущих версиях)
+        # ----- Личные встречи (ручной ввод) -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = []
