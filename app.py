@@ -27,28 +27,26 @@ if 'h2h_manual' not in st.session_state:
     st.session_state.h2h_manual = {}
 
 # ------------------------------------------------------------
-# Режимы работы (вкладки)
+# Режимы работы
 # ------------------------------------------------------------
 mode = st.radio("Выберите режим", ["Автоматический парсинг (по URL)", "Ручной ввод команд"], horizontal=True)
 
 # ------------------------------------------------------------
-# Режим 1: Автоматический парсинг
+# Автоматический парсинг
 # ------------------------------------------------------------
 if mode == "Автоматический парсинг (по URL)":
     url = st.text_input(
-        "Введите URL страницы с результатами (standings / classifica / таблица)",
+        "Введите URL страницы с результатами",
         "https://volley.ru/calendar/01JYGFSGNBJZ0G0CNQFRFJ0ADA/predvaritelnyy"
     )
-    
-    # Для Data Project – чекбокс объединения этапов (показывается только если в URL есть dataproject)
     combine_phases = False
     if "dataproject.com" in url:
         combine_phases = st.checkbox("складывать все этапы (только для Data Project)", value=False)
-    
+
     if st.button("Парсить") and url:
         parser = get_parser_by_url(url)
         if parser is None:
-            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод команд.")
+            st.error("Автоматический парсинг для этого сайта не поддерживается. Переключитесь на ручной ввод.")
         else:
             with st.spinner("Загрузка данных..."):
                 try:
@@ -62,12 +60,10 @@ if mode == "Автоматический парсинг (по URL)":
                     st.error(f"Ошибка: {e}")
 
 # ------------------------------------------------------------
-# Режим 2: Ручной ввод команд
+# Ручной ввод команд
 # ------------------------------------------------------------
 elif mode == "Ручной ввод команд":
     st.subheader("Добавление команды вручную")
-    
-    # Форма для добавления одной команды
     with st.form(key="add_team_form", clear_on_submit=True):
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -78,11 +74,8 @@ elif mode == "Ручной ввод команд":
         with col3:
             sets_lost = st.number_input("Проигранные сеты", min_value=0, step=1, value=0)
             pts_lost = st.number_input("Проигранные очки", min_value=0, step=1, value=0)
-        
         submitted = st.form_submit_button("➕ Добавить команду")
-        
         if submitted and team_name:
-            # Проверяем, существует ли уже такая команда
             if st.session_state.df_teams is not None and team_name in st.session_state.df_teams['Команда'].values:
                 st.warning("Такая команда уже есть")
             else:
@@ -97,31 +90,26 @@ elif mode == "Ручной ввод команд":
                     st.session_state.df_teams = pd.concat([st.session_state.df_teams, new_row], ignore_index=True)
                 st.success(f"Команда {team_name} добавлена")
                 st.rerun()
-    
-    # Отображение текущего списка команд с возможностью удаления
+
     if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
         st.subheader("Текущие команды")
-        cols_to_show = ['Команда', 'Сеты', 'Мячи']
-        st.dataframe(st.session_state.df_teams[cols_to_show], use_container_width=True)
-        
-        # Кнопки удаления для каждой команды
+        st.dataframe(st.session_state.df_teams[['Команда', 'Сеты', 'Мячи']], use_container_width=True)
         st.subheader("Удалить команду")
         team_to_delete = st.selectbox("Выберите команду для удаления", st.session_state.df_teams['Команда'].tolist())
         if st.button("🗑 Удалить выбранную команду"):
             st.session_state.df_teams = st.session_state.df_teams[st.session_state.df_teams['Команда'] != team_to_delete].reset_index(drop=True)
             st.rerun()
     else:
-        st.info("Нет добавленных команд. Используйте форму выше для добавления.")
+        st.info("Нет добавленных команд. Используйте форму выше.")
 
 # ------------------------------------------------------------
-# Отображение прогноза (общая логика для обоих режимов)
+# Прогноз
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
         st.error("Некорректный формат данных: отсутствует колонка 'Команда'")
     else:
         teams = st.session_state.df_teams['Команда'].tolist()
-        
         st.divider()
         st.subheader("⚙️ Настройки прогноза")
         predict_method = st.radio(
@@ -129,7 +117,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             ["По сетам (победа/поражение)", "По очкам (разница очков за матч)"],
             horizontal=True
         )
-        
         st.subheader("📊 Прогноз на матч")
         col1, col2 = st.columns(2)
         with col1:
@@ -140,7 +127,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             away = st.selectbox("Гостевая команда", teams, key="away_team")
             away_data = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             st.caption(f"Сеты: {away_data['Сеты']} | Мячи: {away_data['Мячи']}")
-        
+
         if home and away and home != away:
             try:
                 home_sets_w, home_sets_l = map(int, home_data['Сеты'].split(':'))
@@ -150,23 +137,20 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             except Exception as e:
                 st.error(f"Ошибка формата данных: {e}")
                 st.stop()
-            
-            total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
-            
+
             if predict_method == "По сетам (победа/поражение)":
                 home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
                 away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
                 predicted_winner = home if home_winrate > away_winrate else away
-                prob_home = 1 / (1 + (away_winrate / max(home_winrate, 0.01)))
+                prob_home = home_winrate
+                margin = 0.05
+                odds_home = (1 - margin) / prob_home if prob_home > 0 else 0
                 st.write(f"**Прогноз победителя по сётам:** {predicted_winner}")
                 st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-                st.caption("Прогноз основан на проценте выигранных сетов")
-                
-                # Ожидаемая разница сетов (для информативности)
-                expected_sets_diff = (home_sets_w - home_sets_l) - (away_sets_w - away_sets_l)
-                st.success(f"**Ожидаемая разница сетов:** {expected_sets_diff:+.1f} (в пользу хозяев, если положительная)")
-            
+                st.write(f"**Коэффициент на победу {home} (с маржой 5%):** {odds_home:.2f}")
+                st.caption("Прогноз основан на проценте выигранных сетов. Коэффициент рассчитан с заложенной маржой букмекера 5%.")
             else:  # по очкам
+                total_matches = (home_sets_w + home_sets_l) // 3 if (home_sets_w + home_sets_l) > 0 else 30
                 home_avg_diff = (home_pts_w - home_pts_l) / total_matches
                 away_avg_diff = (away_pts_w - away_pts_l) / total_matches
                 expected_diff = home_avg_diff - away_avg_diff
@@ -177,19 +161,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: **{handicap}** (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю – команды примерно равны")
-                
-                # Дополнительно показываем прогноз по сетам
-                home_winrate = home_sets_w / (home_sets_w + home_sets_l) if (home_sets_w + home_sets_l) > 0 else 0.5
-                away_winrate = away_sets_w / (away_sets_w + away_sets_l) if (away_sets_w + away_sets_l) > 0 else 0.5
-                predicted_winner = home if home_winrate > away_winrate else away
-                prob_home = 1 / (1 + (away_winrate / max(home_winrate, 0.01)))
-                st.write(f"**Прогноз победителя по сётам (вспомогательно):** {predicted_winner}")
-                st.write(f"**Вероятность победы {home}:** {prob_home:.1%}")
-                st.caption("Фора рассчитана по разнице очков за матч")
-            
-            # --------------------------------------------------------
-            # Ручной ввод личных встреч (оставляем)
-            # --------------------------------------------------------
+                st.caption("Прогноз основан на разнице очков за матч (средняя фора).")
+
+            # ----- Личные встречи -----
             st.divider()
             st.subheader("📋 Личные встречи (ручной ввод)")
             with st.expander("➕ Добавить личную встречу"):
@@ -213,8 +187,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     })
                     st.success("Добавлено")
                     st.rerun()
-            
-            # Отображение истории
+
             key_pair = (home, away)
             reverse_key = (away, home)
             h2h_data = []
@@ -226,7 +199,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 new_m['Гости'] = away
                 new_m['Фора по очкам'] = -m['Фора по очкам']
                 h2h_data.append(new_m)
-            
+
             if h2h_data:
                 df_h2h = pd.DataFrame(h2h_data)
                 st.subheader(f"История встреч: {home} – {away}")
