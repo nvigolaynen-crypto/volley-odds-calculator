@@ -570,7 +570,7 @@ def detect_gender_by_url(url: str) -> str:
     return None
 
 # ------------------------------------------------------------
-# Парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи" (код сохранён из предыдущих версий)
+# Парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
@@ -762,7 +762,7 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Расчёт сырой форы по очкам
+# Расчёт сырой форы по очкам (ваш алгоритм, без H2H)
 # ------------------------------------------------------------
 def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                            a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
@@ -804,6 +804,7 @@ def load_teams_from_url(url, combine_phases):
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
+# Состояние
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 if 'h2h_manual' not in st.session_state:
@@ -816,9 +817,14 @@ if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 if 'detected_gender' not in st.session_state:
     st.session_state.detected_gender = None
+# Для сохранения выбранных команд
+if 'home_team' not in st.session_state:
+    st.session_state.home_team = None
+if 'away_team' not in st.session_state:
+    st.session_state.away_team = None
 
 # ------------------------------------------------------------
-# Боковая панель: менеджер таблиц + экспорт/импорт (код остаётся как в предыдущих версиях)
+# Боковая панель: менеджер таблиц + экспорт/импорт (код сохранён)
 # ------------------------------------------------------------
 with st.sidebar:
     st.header("📁 Мои таблицы")
@@ -1030,7 +1036,7 @@ elif st.session_state.active_source == "user_table":
         st.warning("Нет таблиц. Создайте или импортируйте.")
 
 # ------------------------------------------------------------
-# Прогноз с учётом количества матчей
+# Прогноз с учётом количества матчей и сохранением выбранных команд
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -1052,7 +1058,10 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         
         col1, col2 = st.columns(2)
         with col1:
-            home = st.selectbox("Домашняя", teams, key="home_sel")
+            # Сохраняем выбранную команду
+            home_index = teams.index(st.session_state.home_team) if st.session_state.home_team in teams else 0
+            home = st.selectbox("Домашняя", teams, index=home_index, key="home_sel")
+            st.session_state.home_team = home
             home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
             h_sv, h_sp = map(int, home_row['Сеты'].split(':'))
             h_bv, h_bp = map(int, home_row['Мячи'].split(':'))
@@ -1062,7 +1071,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
             st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%} | Матчей: {h_matches}")
         with col2:
-            away = st.selectbox("Гостевая", teams, key="away_sel")
+            away_index = teams.index(st.session_state.away_team) if st.session_state.away_team in teams else 1 if len(teams)>1 else 0
+            away = st.selectbox("Гостевая", teams, index=away_index, key="away_sel")
+            st.session_state.away_team = away
             away_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             a_sv, a_sp = map(int, away_row['Сеты'].split(':'))
             a_bv, a_bp = map(int, away_row['Мячи'].split(':'))
@@ -1072,11 +1083,61 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%} | Матчей: {a_matches}")
 
+        # ----- Блок ручного ввода личных встреч (без вычитания, только накопление) -----
+        st.divider()
+        st.subheader("📋 Личные встречи (ручной ввод)")
+        all_teams = teams if len(teams) > 1 else [home, away]
+        with st.form(key="add_h2h_form"):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
+            with col_b:
+                ha = st.selectbox("Гости", all_teams, key="h2h_a")
+            with col_c:
+                sets_h2h = st.text_input("Счёт по сетам", placeholder="3:1")
+            pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h")
+            date_h2h = st.text_input("Дата", placeholder="01.01.2026")
+            submitted = st.form_submit_button("➕ Добавить")
+            if submitted:
+                key = (hh, ha)
+                st.session_state.h2h_manual.setdefault(key, []).append({
+                    'Дата': date_h2h or "(нет даты)",
+                    'Хозяева': hh,
+                    'Гости': ha,
+                    'Счёт по сетам': sets_h2h,
+                    'Фора по очкам': pts_h2h
+                })
+                st.success("Добавлено")
+                st.rerun()
+
+        # Отображение истории встреч (без вычитания)
+        key_pair = (home, away)
+        rev_key = (away, home)
+        current_h2h = []
+        for m in st.session_state.h2h_manual.get(key_pair, []):
+            current_h2h.append(m)
+        for m in st.session_state.h2h_manual.get(rev_key, []):
+            m2 = m.copy()
+            m2['Хозяева'] = home
+            m2['Гости'] = away
+            m2['Фора по очкам'] = -m['Фора по очкам']
+            current_h2h.append(m2)
+        if current_h2h:
+            st.subheader(f"История встреч: {home} – {away}")
+            st.dataframe(pd.DataFrame(current_h2h)[['Дата','Хозяева','Гости','Счёт по сетам','Фора по очкам']])
+            if st.button("Очистить историю этой пары"):
+                st.session_state.h2h_manual.pop(key_pair, None)
+                st.session_state.h2h_manual.pop(rev_key, None)
+                st.rerun()
+        else:
+            st.info("Нет данных о личных встречах. Добавьте вручную.")
+
+        # ----- Кнопка расчёта прогноза -----
         if st.button("Рассчитать котировки", key="calc"):
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # ----- Прогноз по сетам (без изменений) -----
+                # Прогноз по сетам
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -1096,12 +1157,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # ----- Прогноз по очкам с выбором формулы в зависимости от количества матчей -----
+                # Прогноз по очкам (без вычитания H2H, только исходная статистика)
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
                 )
-                # Определяем минимальное количество матчей (оба соперника)
                 min_matches = min(h_matches, a_matches)
                 if gender == "Мужчины":
                     if min_matches <= 2:
@@ -1117,7 +1177,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         else:
                             adjusted = adjust_handicap_men_home(raw_handicap)
                             used_formula = "мужской домашней (4+ матчей)"
-                else:  # Женщины
+                else:
                     if min_matches <= 2:
                         adjusted = adjust_handicap_women_2(raw_handicap)
                         used_formula = "женской (мало игр, 2)"
@@ -1140,54 +1200,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 else:
                     st.info("Фора близка к нулю")
                 st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {used_formula}")
-
-                # ----- Личные встречи (ручной ввод) -----
-                st.divider()
-                st.subheader("📋 Личные встречи (ручной ввод)")
-                all_teams = teams if len(teams) > 1 else [home, away]
-                with st.expander("➕ Добавить личную встречу"):
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
-                    with col_b:
-                        ha = st.selectbox("Гости", all_teams, key="h2h_a")
-                    with col_c:
-                        sets_h2h = st.text_input("Счёт по сетам", placeholder="3:1")
-                    pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5)
-                    date_h2h = st.text_input("Дата", placeholder="01.01.2026")
-                    if st.button("Добавить", key="add_h2h"):
-                        key = (hh, ha)
-                        st.session_state.h2h_manual.setdefault(key, []).append({
-                            'Дата': date_h2h or "(нет даты)",
-                            'Хозяева': hh,
-                            'Гости': ha,
-                            'Счёт по сетам': sets_h2h,
-                            'Фора по очкам': pts_h2h
-                        })
-                        st.rerun()
-
-                key_pair = (home, away)
-                rev = (away, home)
-                h2h_list = []
-                for m in st.session_state.h2h_manual.get(key_pair, []):
-                    h2h_list.append(m)
-                for m in st.session_state.h2h_manual.get(rev, []):
-                    new_m = m.copy()
-                    new_m['Хозяева'] = home
-                    new_m['Гости'] = away
-                    new_m['Фора по очкам'] = -m['Фора по очкам']
-                    h2h_list.append(new_m)
-
-                if h2h_list:
-                    df_h2h = pd.DataFrame(h2h_list)
-                    st.subheader(f"История встреч: {home} – {away}")
-                    st.dataframe(df_h2h[['Дата','Хозяева','Гости','Счёт по сетам','Фора по очкам']])
-                    if st.button("Очистить историю этой пары"):
-                        st.session_state.h2h_manual.pop(key_pair, None)
-                        st.session_state.h2h_manual.pop(rev, None)
-                        st.rerun()
-                else:
-                    st.info("Нет данных о личных встречах. Добавьте вручную.")
 else:
     if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
         st.warning("Активная таблица пуста")
