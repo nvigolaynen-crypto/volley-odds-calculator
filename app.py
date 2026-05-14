@@ -7,6 +7,72 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
+# Функция корректировки форы (A993) по вашей Excel-формуле
+# ------------------------------------------------------------
+def adjust_handicap(handicap: float) -> float:
+    """Применяет кусочно-линейное преобразование к значению форы."""
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -34.5:
+        return handicap * 1.38
+    elif handicap <= -17.5:
+        return handicap * 1.48
+    elif handicap <= -12.5:
+        return handicap * 1.7
+    elif handicap <= -9.5:
+        return handicap * 1.9
+    elif handicap <= -7.5:
+        return handicap * 2.0
+    elif handicap <= -6.5:
+        return handicap * 2.2
+    elif handicap <= -5.5:
+        return handicap * 1.94
+    elif handicap <= -4.5:
+        return handicap * 1.9
+    elif handicap <= -3.5:
+        return handicap * 1.8
+    elif handicap <= -2.75:
+        return handicap * 2.1
+    elif handicap <= -2.25:
+        return handicap * 1.75
+    elif handicap <= -1.75:
+        return handicap * 1.0
+    elif handicap <= -1.25:
+        return handicap * 0.5
+    elif handicap <= -0.75:
+        return handicap * 0.0
+    elif handicap < 1.25:
+        return handicap + 2.5
+    elif handicap < 1.75:
+        return handicap * 3.5
+    elif handicap < 2.75:
+        return handicap * 3.7
+    elif handicap < 3.5:
+        return handicap * 3.6
+    elif handicap < 4.5:
+        return handicap * 3.2
+    elif handicap < 6.5:
+        return handicap * 2.7
+    elif handicap < 7.5:
+        return handicap * 2.5
+    elif handicap < 9.5:
+        return handicap * 2.4
+    elif handicap < 10.5:
+        return handicap * 2.3
+    elif handicap < 14.5:
+        return handicap * 2.2
+    elif handicap < 17.5:
+        return handicap * 2.0
+    elif handicap < 21.5:
+        return handicap * 1.68
+    elif handicap < 34.5:
+        return handicap * 1.65
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+# ------------------------------------------------------------
 # Универсальный парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
@@ -200,10 +266,10 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Расчёт форы по очкам (с учётом переданного количества матчей)
+# Расчёт сырой форы по очкам (ваш алгоритм)
 # ------------------------------------------------------------
-def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
-                       a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
+def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
+                           a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
     if h_matches is None or h_matches <= 0:
         h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
     if a_matches is None or a_matches <= 0:
@@ -214,8 +280,7 @@ def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
     away_avg_conceded = a_pts_l / a_matches
     expected_home = (home_avg_scored + away_avg_conceded) / 2
     expected_away = (away_avg_scored + home_avg_conceded) / 2
-    handicap = expected_home - expected_away
-    return round(handicap, 1), expected_home, expected_away
+    return expected_home - expected_away
 
 # ------------------------------------------------------------
 # Парсеры для автоматических URL
@@ -492,7 +557,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # ----- Прогноз по сетам -----
+                # ----- Прогноз по сетам (без изменений) -----
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -512,19 +577,21 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # ----- Прогноз по очкам (с учётом матчей) -----
-                handicap, exp_home, exp_away = calculate_handicap(
+                # ----- Прогноз по очкам (с использованием сырой форы и корректировки) -----
+                raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
                 )
-                st.subheader("⚖️ Прогноз по очкам (фора)")
-                if handicap > 0:
-                    st.success(f"Фора на матч: {handicap} (в пользу хозяев)")
-                elif handicap < 0:
-                    st.success(f"Фора на матч: {handicap} (в пользу гостей)")
+                adjusted_handicap = adjust_handicap(raw_handicap)
+
+                st.subheader("⚖️ Прогноз по очкам (скорректированный)")
+                if adjusted_handicap > 0:
+                    st.success(f"Фора на матч: {adjusted_handicap:.1f} (в пользу хозяев)")
+                elif adjusted_handicap < 0:
+                    st.success(f"Фора на матч: {adjusted_handicap:.1f} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption(f"Ожидаемые очки: {exp_home:.1f} – {exp_away:.1f} (метод: (среднее нападение хозяев + средняя защита гостей)/2 и аналогично)")
+                st.caption(f"Исходная фора (A993): {raw_handicap:.1f} → скорректировано по вашей таблице")
 
                 # ----- Личные встречи (ручной ввод) -----
                 st.divider()
