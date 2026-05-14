@@ -7,7 +7,7 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Универсальный парсер таблиц (CSV, Excel, текст)
+# Универсальный парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
@@ -18,24 +18,19 @@ def parse_table_to_df(data_source, file_type=None):
             line = line.strip()
             if not line:
                 continue
-            # Ищем строку, начинающуюся с цифры и пробела
             if re.match(r'^\d+\s+', line):
-                # Разбиваем по запятой (CSV)
                 fields = line.split(',')
                 if len(fields) < 16:
                     continue
-                # Название команды: первое поле, убираем номер
                 team_field = fields[0].strip()
                 team = re.sub(r'^\d+\s+', '', team_field).strip()
                 if not team:
                     continue
-                # Сеты: 13-е и 14-е поля (индексы 12, 13)
                 try:
                     sets_won = int(float(fields[12].strip()))
                     sets_lost = int(float(fields[13].strip()))
                 except:
                     continue
-                # Очки: 15-е и 16-е поля (индексы 14, 15), убираем точки
                 pts_won_str = fields[14].strip().replace('.', '')
                 pts_lost_str = fields[15].strip().replace('.', '')
                 try:
@@ -43,18 +38,72 @@ def parse_table_to_df(data_source, file_type=None):
                     pts_lost = int(pts_lost_str)
                 except:
                     continue
+                # Попытка найти колонку с количеством матчей (в исходном CSV её нет, оставляем пустым)
+                matches = None
+                if len(fields) > 16:
+                    try:
+                        matches = int(float(fields[16].strip()))
+                    except:
+                        pass
                 data.append({
                     'Команда': team,
                     'Сеты': f"{sets_won}:{sets_lost}",
-                    'Мячи': f"{pts_won}:{pts_lost}"
+                    'Мячи': f"{pts_won}:{pts_lost}",
+                    'Матчи': matches
                 })
         if data:
             return pd.DataFrame(data)
+        # Fallback: стандартный pandas
+        try:
+            df = pd.read_csv(data_source, encoding='utf-8')
+            if 'Матчи' in df.columns:
+                pass
+            elif 'Matches' in df.columns:
+                df.rename(columns={'Matches': 'Матчи'}, inplace=True)
+            # Ищем колонки с командами, сетами, мячами (как раньше)
+            team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+            for col in df.columns:
+                col_low = str(col).lower()
+                if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+                    team_col = col
+                if 'vinti' in col_low and 'set' in col_low:
+                    sets_won_col = col
+                if 'persi' in col_low and 'set' in col_low:
+                    sets_lost_col = col
+                if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                    pts_won_col = col
+                if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                    pts_lost_col = col
+            if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+                rows = []
+                for _, row in df.iterrows():
+                    team = str(row[team_col]).strip()
+                    if not team or team == 'nan':
+                        continue
+                    try:
+                        sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                        sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                        pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                        pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                        matches = None
+                        if 'Матчи' in df.columns:
+                            try:
+                                matches = int(float(str(row['Матчи']).replace(',', '.')))
+                            except:
+                                pass
+                        rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
+                    except:
+                        continue
+                if rows:
+                    return pd.DataFrame(rows)
+        except Exception as e:
+            pass
         return None
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
-        # Поиск колонок
+        # Аналогичный поиск колонок
         team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+        matches_col = None
         for col in df_raw.columns:
             col_low = str(col).lower()
             if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
@@ -67,6 +116,8 @@ def parse_table_to_df(data_source, file_type=None):
                 pts_won_col = col
             if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
                 pts_lost_col = col
+            if 'матчи' in col_low or 'matches' in col_low:
+                matches_col = col
         if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
             rows = []
             for _, row in df_raw.iterrows():
@@ -78,7 +129,13 @@ def parse_table_to_df(data_source, file_type=None):
                     sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
                     pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
                     pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                    matches = None
+                    if matches_col:
+                        try:
+                            matches = int(float(str(row[matches_col]).replace(',', '.')))
+                        except:
+                            pass
+                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
                 except:
                     continue
             if rows:
@@ -88,6 +145,11 @@ def parse_table_to_df(data_source, file_type=None):
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
+    """
+    Поддерживает форматы:
+    1) Команда;Сеты;Мячи
+    2) Команда;Сеты;Мячи;Матчи
+    """
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -100,9 +162,16 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
                 team = parts[0].strip()
                 sets = parts[1].strip()
                 points = parts[2].strip()
+                matches = None
+                if len(parts) >= 4:
+                    try:
+                        matches = int(parts[3].strip())
+                    except:
+                        pass
                 if ':' in sets and ':' in points:
-                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
+                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points, 'Матчи': matches})
             continue
+        # Без ';' – разбиваем пробелами (старый формат, без матчей)
         tokens = re.split(r'\s+', line)
         if len(tokens) < 5:
             continue
@@ -121,7 +190,7 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
             sets_l = int(float(numbers[1]))
             pts_w = int(float(numbers[2].replace('.', '').replace(',', '.')))
             pts_l = int(float(numbers[3].replace('.', '').replace(',', '.')))
-            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': None})
         except:
             continue
     if data:
@@ -140,21 +209,21 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Новая функция расчёта форы по очкам (сбалансированный метод)
+# Расчёт форы по очкам (с учётом переданного количества матчей)
 # ------------------------------------------------------------
-def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l,
-                       a_sets_w, a_sets_l, a_pts_w, a_pts_l):
-    # Количество матчей (оценка по сетам)
-    h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
-    a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
+def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
+                       a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
+    # Если количество матчей не передано, оцениваем по сетам
+    if h_matches is None or h_matches <= 0:
+        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
+    if a_matches is None or a_matches <= 0:
+        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
     
-    # Средние за матч
     home_avg_scored = h_pts_w / h_matches
     home_avg_conceded = h_pts_l / h_matches
     away_avg_scored = a_pts_w / a_matches
     away_avg_conceded = a_pts_l / a_matches
     
-    # Ожидаемые очки в матче
     expected_home = (home_avg_scored + away_avg_conceded) / 2
     expected_away = (away_avg_scored + home_avg_conceded) / 2
     
@@ -182,7 +251,7 @@ def load_teams_from_url(url, combine_phases):
     return None, error or "Не удалось загрузить данные"
 
 # ------------------------------------------------------------
-# Инициализация Streamlit и загрузка таблиц из localStorage (через импорт/экспорт)
+# Инициализация Streamlit
 # ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
@@ -199,11 +268,10 @@ if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 
 # ------------------------------------------------------------
-# Боковая панель: менеджер пользовательских таблиц + экспорт/импорт
+# Боковая панель: менеджер таблиц + экспорт/импорт
 # ------------------------------------------------------------
 with st.sidebar:
     st.header("📁 Мои таблицы")
-    
     col_exp, col_imp, col_clear = st.columns(3)
     with col_exp:
         if st.button("💾 Экспорт всех таблиц"):
@@ -231,7 +299,8 @@ with st.sidebar:
         table_name = st.text_input("Название таблицы")
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
-            text_data = st.text_area("Введите данные (команда;сеты;мячи)", height=200)
+            st.markdown("Формат: `Название;Сеты;Мячи` или `Название;Сеты;Мячи;Матчи`")
+            text_data = st.text_area("Введите данные", height=200)
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
@@ -342,7 +411,7 @@ if st.session_state.active_source == "auto":
                     st.error(err)
 
 # ------------------------------------------------------------
-# 2. Ручной ввод одной пары
+# 2. Ручной ввод одной пары (без таблицы)
 # ------------------------------------------------------------
 elif st.session_state.active_source == "manual_pair":
     st.info("Введите данные для двух команд")
@@ -354,6 +423,7 @@ elif st.session_state.active_source == "manual_pair":
         h_sp = st.number_input("Sets P", min_value=0, key="h_sp")
         h_bv = st.number_input("Balls V", min_value=0, key="h_bv")
         h_bp = st.number_input("Balls P", min_value=0, key="h_bp")
+        h_m = st.number_input("Матчей", min_value=1, value=30, key="h_m")
     with col2:
         st.markdown("**Гостевая**")
         away_name = st.text_input("Название", key="a_name")
@@ -361,12 +431,14 @@ elif st.session_state.active_source == "manual_pair":
         a_sp = st.number_input("Sets P", min_value=0, key="a_sp")
         a_bv = st.number_input("Balls V", min_value=0, key="a_bv")
         a_bp = st.number_input("Balls P", min_value=0, key="a_bp")
+        a_m = st.number_input("Матчей", min_value=1, value=30, key="a_m")
     if st.button("Сохранить пару"):
         if home_name and away_name:
             df = pd.DataFrame({
                 'Команда': [home_name, away_name],
                 'Сеты': [f"{h_sv}:{h_sp}", f"{a_sv}:{a_sp}"],
-                'Мячи': [f"{h_bv}:{h_bp}", f"{a_bv}:{a_bp}"]
+                'Мячи': [f"{h_bv}:{h_bp}", f"{a_bv}:{a_bp}"],
+                'Матчи': [h_m, a_m]
             })
             st.session_state.df_teams = df
             st.success("Сохранено")
@@ -399,21 +471,27 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
             h_sv, h_sp = map(int, home_row['Сеты'].split(':'))
             h_bv, h_bp = map(int, home_row['Мячи'].split(':'))
+            h_matches = home_row['Матчи'] if 'Матчи' in home_row and pd.notna(home_row['Матчи']) else None
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
             st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%}")
+            if h_matches:
+                st.caption(f"Матчей: {h_matches}")
         with col2:
             away = st.selectbox("Гостевая", teams, key="away_sel")
             away_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             a_sv, a_sp = map(int, away_row['Сеты'].split(':'))
             a_bv, a_bp = map(int, away_row['Мячи'].split(':'))
+            a_matches = away_row['Матчи'] if 'Матчи' in away_row and pd.notna(away_row['Матчи']) else None
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}")
+            if a_matches:
+                st.caption(f"Матчей: {a_matches}")
 
         if st.button("Рассчитать котировки", key="calc"):
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # ----- Прогноз по сетам (нормализованные вероятности) -----
+                # ----- Прогноз по сетам -----
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -433,10 +511,10 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # ----- Прогноз по очкам (новая математика) -----
+                # ----- Прогноз по очкам (с учётом матчей) -----
                 handicap, exp_home, exp_away = calculate_handicap(
-                    h_sv, h_sp, h_bv, h_bp,
-                    a_sv, a_sp, a_bv, a_bp
+                    h_sv, h_sp, h_bv, h_bp, h_matches,
+                    a_sv, a_sp, a_bv, a_bp, a_matches
                 )
                 st.subheader("⚖️ Прогноз по очкам (фора)")
                 if handicap > 0:
