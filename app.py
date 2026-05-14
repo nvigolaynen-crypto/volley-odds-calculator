@@ -235,17 +235,15 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
             h_sv, h_sp = map(int, home_row['Сеты'].split(':'))
             h_bv, h_bp = map(int, home_row['Мячи'].split(':'))
-            h_matches = (h_sv + h_sp) // 3
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
-            st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | Матчей: {h_matches} | % сетов: {p_home_set:.1%}")
+            st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%}")
         with col2:
             away = st.selectbox("Гостевая", teams, key="away_sel")
             away_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             a_sv, a_sp = map(int, away_row['Сеты'].split(':'))
             a_bv, a_bp = map(int, away_row['Мячи'].split(':'))
-            a_matches = (a_sv + a_sp) // 3
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
-            st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | Матчей: {a_matches} | % сетов: {p_away_set:.1%}")
+            st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}")
 
         if st.button("Рассчитать котировки", key="calc"):
             if home == away:
@@ -254,13 +252,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 # ----- Прогноз по сетам (нормализованные вероятности) -----
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
-                prob_home_match = prob_win_match(p_home)   # вероятность против равного
+                prob_home_match = prob_win_match(p_home)
                 prob_away_match = prob_win_match(p_away)
-                # Нормализация
                 total = prob_home_match + prob_away_match
                 prob_home_norm = prob_home_match / total
                 prob_away_norm = prob_away_match / total
-                # Определяем фаворита
                 if prob_home_norm > prob_away_norm:
                     favorite = home
                     fav_prob = prob_home_norm
@@ -275,9 +271,14 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
                 # ----- Прогноз по очкам (фора) -----
-                total_m = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
-                home_avg_pts = (h_bv - h_bp) / total_m
-                away_avg_pts = (a_bv - a_bp) / total_m
+                # Для форы используем примерное количество матчей, но хотя бы не показываем его.
+                # Нужно получить количество матчей из данных? Лучше оценить по победам+поражениям, но их нет.
+                # Придётся всё равно использовать (сеты)/3, но это только для форы, не для отображения.
+                total_matches_h = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
+                total_matches_a = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 30
+                total_matches = max(total_matches_h, total_matches_a, 1)
+                home_avg_pts = (h_bv - h_bp) / total_matches
+                away_avg_pts = (a_bv - a_bp) / total_matches
                 handicap = round(home_avg_pts - away_avg_pts, 1)
                 st.subheader("⚖️ Прогноз по очкам (фора)")
                 if handicap > 0:
@@ -286,7 +287,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: {handicap} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption("Средняя разница очков за матч (хозяева − гости)")
+                st.caption("Средняя разница очков за матч (оценка).")
 
                 # ----- Личные встречи (ручной ввод) -----
                 st.divider()
