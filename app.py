@@ -38,7 +38,6 @@ def parse_table_to_df(data_source, file_type=None):
                     pts_lost = int(pts_lost_str)
                 except:
                     continue
-                # Попытка найти колонку с количеством матчей (в исходном CSV её нет, оставляем пустым)
                 matches = None
                 if len(fields) > 16:
                     try:
@@ -53,14 +52,13 @@ def parse_table_to_df(data_source, file_type=None):
                 })
         if data:
             return pd.DataFrame(data)
-        # Fallback: стандартный pandas
+        # fallback: стандартный pandas
         try:
             df = pd.read_csv(data_source, encoding='utf-8')
             if 'Матчи' in df.columns:
                 pass
             elif 'Matches' in df.columns:
                 df.rename(columns={'Matches': 'Матчи'}, inplace=True)
-            # Ищем колонки с командами, сетами, мячами (как раньше)
             team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
             for col in df.columns:
                 col_low = str(col).lower()
@@ -101,7 +99,6 @@ def parse_table_to_df(data_source, file_type=None):
         return None
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
-        # Аналогичный поиск колонок
         team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
         matches_col = None
         for col in df_raw.columns:
@@ -145,11 +142,6 @@ def parse_table_to_df(data_source, file_type=None):
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
-    """
-    Поддерживает форматы:
-    1) Команда;Сеты;Мячи
-    2) Команда;Сеты;Мячи;Матчи
-    """
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -171,7 +163,6 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
                 if ':' in sets and ':' in points:
                     data.append({'Команда': team, 'Сеты': sets, 'Мячи': points, 'Матчи': matches})
             continue
-        # Без ';' – разбиваем пробелами (старый формат, без матчей)
         tokens = re.split(r'\s+', line)
         if len(tokens) < 5:
             continue
@@ -213,20 +204,16 @@ def prob_win_match(p: float) -> float:
 # ------------------------------------------------------------
 def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                        a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
-    # Если количество матчей не передано, оцениваем по сетам
     if h_matches is None or h_matches <= 0:
         h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
     if a_matches is None or a_matches <= 0:
         a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
-    
     home_avg_scored = h_pts_w / h_matches
     home_avg_conceded = h_pts_l / h_matches
     away_avg_scored = a_pts_w / a_matches
     away_avg_conceded = a_pts_l / a_matches
-    
     expected_home = (home_avg_scored + away_avg_conceded) / 2
     expected_away = (away_avg_scored + home_avg_conceded) / 2
-    
     handicap = expected_home - expected_away
     return round(handicap, 1), expected_home, expected_away
 
@@ -401,7 +388,8 @@ if st.session_state.active_source == "auto":
         combine = False
         if "dataproject.com" in url:
             combine = st.checkbox("Складывать все этапы")
-        if st.form_submit_button("📥 Загрузить данные") and url:
+        load_clicked = st.form_submit_button("📥 Загрузить данные")
+        if load_clicked and url:
             with st.spinner("Загрузка..."):
                 df, err = load_teams_from_url(url, combine)
                 if df is not None:
@@ -409,6 +397,19 @@ if st.session_state.active_source == "auto":
                     st.success(f"Загружено {len(df)} команд")
                 else:
                     st.error(err)
+    
+    # После загрузки данных – возможность вручную указать количество матчей
+    if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
+        with st.expander("⚙️ Указать количество сыгранных матчей (для корректного расчёта форы по очкам)"):
+            st.markdown("Если в данных из URL нет точного числа матчей, вы можете задать его вручную. Обычно в лиге у всех команд одинаковое количество игр.")
+            use_manual_matches = st.checkbox("Задать количество матчей вручную")
+            if use_manual_matches:
+                matches_value = st.number_input("Количество матчей для всех команд", min_value=1, value=30, step=1)
+                if st.button("Применить ко всем командам"):
+                    df = st.session_state.df_teams.copy()
+                    df['Матчи'] = matches_value
+                    st.session_state.df_teams = df
+                    st.success(f"Для всех команд установлено количество матчей: {matches_value}")
 
 # ------------------------------------------------------------
 # 2. Ручной ввод одной пары (без таблицы)
