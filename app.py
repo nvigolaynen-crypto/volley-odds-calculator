@@ -1,20 +1,89 @@
 import streamlit as st
 import pandas as pd
+import re
 import math
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
+# Улучшенный парсер текстовых таблиц
+# ------------------------------------------------------------
+def parse_text_to_df(text: str) -> pd.DataFrame:
+    """
+    Парсит текст с данными команд.
+    Поддерживает два формата:
+    1) Название;Сеты;Мячи  (например: Зенит-Казань;87:24;2655:2259)
+    2) Название  Сеты_В  Сеты_П  Очки_В  Очки_П  ... (разделитель пробелы/табуляция)
+       Очки могут быть с точкой как разделитель тысяч (2.273 -> 2273)
+    """
+    lines = text.strip().split('\n')
+    data = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Если есть точка с запятой – старый формат
+        if ';' in line:
+            parts = line.split(';')
+            if len(parts) >= 3:
+                team = parts[0].strip()
+                sets = parts[1].strip()
+                points = parts[2].strip()
+                if ':' in sets and ':' in points:
+                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
+            continue
+        
+        # Формат с пробелами/табуляцией
+        # Разбиваем по пробельным символам (пробел, табуляция)
+        tokens = re.split(r'\s+', line)
+        if len(tokens) < 5:
+            continue
+        
+        # Название команды — это все токены до первого числа (не цифра?)
+        # Но у нас известная структура: название (может состоять из нескольких слов), затем числа:
+        #   сеты_в, сеты_п, очки_в, очки_п, и возможно другие цифры (ранг, победы и т.д.)
+        # Ищем первые два числа — это сеты; затем два числа с точкой или без — это очки.
+        # Название — всё до первой найденной цифры, которая может быть сетом.
+        # Ищем первый токен, который состоит только из цифр (или цифры с точкой)
+        team_parts = []
+        numbers = []
+        for token in tokens:
+            if re.match(r'^[\d]+$', token) or re.match(r'^[\d\.]+$', token):
+                numbers.append(token)
+            else:
+                team_parts.append(token)
+        team = ' '.join(team_parts)
+        if not team:
+            continue
+        # Должно быть как минимум 4 числа: сеты_в, сеты_п, очки_в, очки_п
+        if len(numbers) < 4:
+            continue
+        sets_won = numbers[0]
+        sets_lost = numbers[1]
+        # Очки: убираем точки
+        pts_won = numbers[2].replace('.', '')
+        pts_lost = numbers[3].replace('.', '')
+        # Проверка, что это числа
+        if sets_won.isdigit() and sets_lost.isdigit() and pts_won.isdigit() and pts_lost.isdigit():
+            sets_str = f"{sets_won}:{sets_lost}"
+            pts_str = f"{pts_won}:{pts_lost}"
+            data.append({'Команда': team, 'Сеты': sets_str, 'Мячи': pts_str})
+    
+    if data:
+        return pd.DataFrame(data)
+    return None
+
+# ------------------------------------------------------------
 # Функция вероятности выиграть матч (до 3 побед из 5)
 # ------------------------------------------------------------
 def prob_win_match(p: float) -> float:
-    """Вероятность выиграть матч при вероятности выигрыша одного сета p"""
     if p <= 0:
         return 0.0
     if p >= 1:
         return 1.0
     q = 1 - p
-    # C(5,3)=10, C(5,4)=5, C(5,5)=1
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
@@ -36,18 +105,6 @@ def load_teams_from_url(url, combine_phases):
     if df is not None and not df.empty and 'Команда' in df.columns:
         return df, None
     return None, error or "Не удалось загрузить данные"
-
-def parse_text_to_df(text: str):
-    data = []
-    for line in text.strip().split('\n'):
-        if ';' not in line:
-            continue
-        parts = line.strip().split(';')
-        if len(parts) >= 3:
-            team, sets, points = parts[0].strip(), parts[1].strip(), parts[2].strip()
-            if ':' in sets and ':' in points:
-                data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
-    return pd.DataFrame(data) if data else None
 
 # ------------------------------------------------------------
 # Инициализация
@@ -75,13 +132,15 @@ with st.sidebar:
         table_name = st.text_input("Название таблицы")
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
-            text_data = st.text_area("Введите данные (Команда;Сеты;Мячи)", height=200)
+            text_data = st.text_area("Введите данные (формат: команда;сеты;мячи или команда   сеты_в   сеты_п   очки_в   очки_п)", height=200)
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
                     st.session_state.user_tables[table_name] = df_new
-                    st.success(f"Таблица '{table_name}' создана")
+                    st.success(f"Таблица '{table_name}' создана ({len(df_new)} команд)")
                     st.rerun()
+                else:
+                    st.error("Не удалось распознать данные. Проверьте формат.")
         else:
             uploaded_file = st.file_uploader("CSV/Excel", type=['csv','xlsx'])
             if uploaded_file and st.button("Создать таблицу"):
@@ -94,6 +153,10 @@ with st.sidebar:
                         st.session_state.user_tables[table_name] = df_new[['Команда','Сеты','Мячи']]
                         st.success(f"Таблица '{table_name}' создана")
                         st.rerun()
+                    else:
+                        # Попробуем преобразовать, если колонки названы иначе
+                        # Здесь можно добавить логику, но для простоты выведем ошибку
+                        st.error("Файл должен содержать колонки: Команда, Сеты, Мячи")
                 except Exception as e:
                     st.error(str(e))
 
@@ -125,6 +188,8 @@ with st.sidebar:
                         if st.session_state.selected_user_table == upd_name:
                             st.session_state.df_teams = df_upd
                         st.rerun()
+                    else:
+                        st.error("Не удалось распознать данные")
             else:
                 upd_file = st.file_uploader("Файл", type=['csv','xlsx'])
                 if upd_file and st.button("Обновить"):
@@ -138,6 +203,8 @@ with st.sidebar:
                             if st.session_state.selected_user_table == upd_name:
                                 st.session_state.df_teams = df_upd
                             st.rerun()
+                        else:
+                            st.error("Файл должен содержать колонки: Команда, Сеты, Мячи")
                     except Exception as e:
                         st.error(str(e))
     else:
@@ -271,9 +338,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
                 # ----- Прогноз по очкам (фора) -----
-                # Для форы используем примерное количество матчей, но хотя бы не показываем его.
-                # Нужно получить количество матчей из данных? Лучше оценить по победам+поражениям, но их нет.
-                # Придётся всё равно использовать (сеты)/3, но это только для форы, не для отображения.
                 total_matches_h = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
                 total_matches_a = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 30
                 total_matches = max(total_matches_h, total_matches_a, 1)
