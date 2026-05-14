@@ -7,10 +7,9 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Функции корректировки форы (мужчины и женщины)
+# Функции корректировки форы (мужчины/женщины, домашнее/нейтральное)
 # ------------------------------------------------------------
-def adjust_handicap_men(handicap: float) -> float:
-    """Корректировка для мужских команд (A993)"""
+def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
         return handicap * 1.3
     elif handicap <= -34.5:
@@ -72,8 +71,75 @@ def adjust_handicap_men(handicap: float) -> float:
     else:
         return handicap * 1.3
 
-def adjust_handicap_women(handicap: float) -> float:
-    """Корректировка для женских команд (A992)"""
+def adjust_handicap_men_neutral(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -34.5:
+        return handicap * 1.38
+    elif handicap <= -21.5:
+        return handicap * 1.57
+    elif handicap <= -17.5:
+        return handicap * 1.58
+    elif handicap <= -14.5:
+        return handicap * 1.85
+    elif handicap <= -12.5:
+        return handicap * 1.95
+    elif handicap <= -10.5:
+        return handicap * 2.05
+    elif handicap <= -9.5:
+        return handicap * 2.1
+    elif handicap <= -7.5:
+        return handicap * 2.2
+    elif handicap <= -4.5:
+        return handicap * 2.3
+    elif handicap <= -3.5:
+        return handicap * 2.5
+    elif handicap <= -2.75:
+        return handicap * 2.85
+    elif handicap <= -2.25:
+        return handicap * 2.73
+    elif handicap <= -1.85:
+        return handicap * 2.35
+    elif handicap <= -1.65:
+        return handicap * 1.8
+    elif handicap <= -1.25:
+        return handicap * 1.48
+    elif handicap < 1.25:
+        return handicap * 1.0
+    elif handicap < 1.6:
+        return handicap * 1.48
+    elif handicap < 1.85:
+        return handicap * 1.8
+    elif handicap < 2.25:
+        return handicap * 2.35
+    elif handicap < 2.75:
+        return handicap * 2.73
+    elif handicap < 3.5:
+        return handicap * 2.85
+    elif handicap < 4.5:
+        return handicap * 2.5
+    elif handicap < 7.5:
+        return handicap * 2.3
+    elif handicap < 9.5:
+        return handicap * 2.2
+    elif handicap < 10.5:
+        return handicap * 2.1
+    elif handicap < 12.5:
+        return handicap * 2.05
+    elif handicap < 14.5:
+        return handicap * 1.95
+    elif handicap < 17.5:
+        return handicap * 1.85
+    elif handicap < 21.5:
+        return handicap * 1.58
+    elif handicap < 34.5:
+        return handicap * 1.57
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_women_home(handicap: float) -> float:
     if handicap <= -43:
         return handicap * 1.3
     elif handicap <= -38.5:
@@ -151,23 +217,99 @@ def adjust_handicap_women(handicap: float) -> float:
     else:
         return handicap * 1.3
 
+def adjust_handicap_women_neutral(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -38.5:
+        return handicap * 1.38
+    elif handicap <= -29.5:
+        return handicap * 1.5
+    elif handicap <= -27.5:
+        return handicap * 1.56
+    elif handicap <= -25.5:
+        return handicap * 1.58
+    elif handicap <= -23.5:
+        return handicap * 1.6
+    elif handicap <= -17.5:
+        return handicap * 1.69
+    elif handicap <= -14.5:
+        return handicap * 1.8
+    elif handicap <= -12.5:
+        return handicap * 1.95
+    elif handicap <= -11.5:
+        return handicap * 2.05
+    elif handicap <= -10.5:
+        return handicap * 2.15
+    elif handicap <= -6.5:
+        return handicap * 2.3
+    elif handicap <= -5.5:
+        return handicap * 2.4
+    elif handicap <= -4.5:
+        return handicap * 2.5
+    elif handicap <= -3.5:
+        return handicap * 2.8
+    elif handicap <= -2.25:
+        return handicap * 2.9
+    elif handicap <= -1.85:
+        return handicap * 2.25
+    elif handicap <= -1.65:
+        return handicap * 1.8
+    elif handicap <= -1.25:
+        return handicap * 1.48
+    elif handicap < 1.25:
+        return handicap * 1.0
+    elif handicap < 1.6:
+        return handicap * 1.48
+    elif handicap < 1.85:
+        return handicap * 1.8
+    elif handicap < 2.25:
+        return handicap * 2.25
+    elif handicap < 3.5:
+        return handicap * 2.9
+    elif handicap < 4.5:
+        return handicap * 2.8
+    elif handicap < 5.5:
+        return handicap * 2.5
+    elif handicap < 6.5:
+        return handicap * 2.4
+    elif handicap < 10.5:
+        return handicap * 2.3
+    elif handicap < 11.5:
+        return handicap * 2.15
+    elif handicap < 12.5:
+        return handicap * 2.05
+    elif handicap < 14.5:
+        return handicap * 1.95
+    elif handicap < 17.5:
+        return handicap * 1.8
+    elif handicap < 23.5:
+        return handicap * 1.69
+    elif handicap < 25.5:
+        return handicap * 1.6
+    elif handicap < 27.5:
+        return handicap * 1.58
+    elif handicap < 29.5:
+        return handicap * 1.56
+    elif handicap < 38.5:
+        return handicap * 1.5
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
 # ------------------------------------------------------------
 # Определение пола по URL
 # ------------------------------------------------------------
 def detect_gender_by_url(url: str) -> str:
-    """Возвращает 'Мужчины' или 'Женщины' на основе URL, или None если не определено."""
     url_lower = url.lower()
-    # Женские индикаторы
     if any(x in url_lower for x in ['femminile', 'women', 'kadinlar', 'liga kobiet', 'womens', 'legavolleyfemminile']):
         return "Женщины"
-    # Мужские индикаторы
-    if any(x in url_lower for x in ['superlega', 'plusliga', 'legavolley.it', 'volley.ru/men', 'volley.ru']):
+    if any(x in url_lower for x in ['superlega', 'plusliga', 'legavolley.it', 'volley.ru']):
         return "Мужчины"
-    # Если ни один не сработал, возвращаем None
     return None
 
 # ------------------------------------------------------------
-# Универсальный парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
+# Парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
@@ -212,7 +354,6 @@ def parse_table_to_df(data_source, file_type=None):
                 })
         if data:
             return pd.DataFrame(data)
-        # fallback: стандартный pandas
         try:
             df = pd.read_csv(data_source, encoding='utf-8')
             if 'Матчи' in df.columns:
@@ -254,7 +395,7 @@ def parse_table_to_df(data_source, file_type=None):
                         continue
                 if rows:
                     return pd.DataFrame(rows)
-        except Exception as e:
+        except:
             pass
         return None
     elif file_type == 'xlsx':
@@ -298,7 +439,7 @@ def parse_table_to_df(data_source, file_type=None):
             if rows:
                 return pd.DataFrame(rows)
         return None
-    else:  # text
+    else:
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
@@ -349,7 +490,7 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
     return None
 
 # ------------------------------------------------------------
-# Функция вероятности выиграть матч
+# Функция вероятности выиграть матч (до 3 побед из 5)
 # ------------------------------------------------------------
 def prob_win_match(p: float) -> float:
     if p <= 0:
@@ -360,7 +501,7 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Расчёт сырой форы
+# Расчёт сырой форы по очкам (ваш алгоритм)
 # ------------------------------------------------------------
 def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                            a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
@@ -377,7 +518,7 @@ def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
     return expected_home - expected_away
 
 # ------------------------------------------------------------
-# Парсеры для URL
+# Парсеры для автоматических URL
 # ------------------------------------------------------------
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
@@ -413,7 +554,7 @@ if 'user_tables' not in st.session_state:
 if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 if 'detected_gender' not in st.session_state:
-    st.session_state.detected_gender = None  # будет "Мужчины" или "Женщины"
+    st.session_state.detected_gender = None
 
 # ------------------------------------------------------------
 # Боковая панель: менеджер таблиц + экспорт/импорт
@@ -555,7 +696,6 @@ if st.session_state.active_source == "auto":
                 df, err = load_teams_from_url(url, combine)
                 if df is not None:
                     st.session_state.df_teams = df
-                    # Автоопределение пола по URL
                     detected = detect_gender_by_url(url)
                     if detected:
                         st.session_state.detected_gender = detected
@@ -566,9 +706,8 @@ if st.session_state.active_source == "auto":
                 else:
                     st.error(err)
     
-    # После загрузки данных – возможность вручную указать количество матчей
     if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
-        with st.expander("⚙️ Указать количество сыгранных матчей (для корректного расчёта форы по очкам)"):
+        with st.expander("⚙️ Указать количество сыгранных матчей"):
             st.markdown("Если в данных из URL нет точного числа матчей, вы можете задать его вручную.")
             use_manual_matches = st.checkbox("Задать количество матчей вручную")
             if use_manual_matches:
@@ -610,9 +749,8 @@ elif st.session_state.active_source == "manual_pair":
                 'Матчи': [h_m, a_m]
             })
             st.session_state.df_teams = df
-            # Для ручного ввода пол не определён, оставляем как было (можно доопределить ниже)
             if st.session_state.detected_gender is None:
-                st.session_state.detected_gender = "Мужчины"  # по умолчанию
+                st.session_state.detected_gender = "Мужчины"
             st.success("Сохранено")
 
 # ------------------------------------------------------------
@@ -624,15 +762,14 @@ elif st.session_state.active_source == "user_table":
         if st.button("Активировать"):
             st.session_state.df_teams = st.session_state.user_tables[selected]
             st.session_state.selected_user_table = selected
-            # Для загруженной таблицы пол не определён, пользователь должен выбрать вручную
             if st.session_state.detected_gender is None:
-                st.session_state.detected_gender = "Мужчины"  # по умолчанию
+                st.session_state.detected_gender = "Мужчины"
             st.success(f"Активирована '{selected}'")
     else:
         st.warning("Нет таблиц. Создайте или импортируйте.")
 
 # ------------------------------------------------------------
-# Прогноз (с отображением определённого пола и возможностью ручного изменения)
+# Прогноз
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -641,20 +778,16 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         teams = st.session_state.df_teams['Команда'].tolist()
         st.subheader("📊 Прогноз на матч")
         
-        # Показываем определённый пол и даём возможность изменить вручную (если автоопределение ошиблось)
-        if st.session_state.detected_gender:
-            gender = st.radio(
-                "Категория (для корректировки форы)",
-                ["Мужчины", "Женщины"],
-                index=0 if st.session_state.detected_gender == "Мужчины" else 1,
-                help="Автоматически определено по URL, но вы можете изменить вручную."
-            )
-        else:
-            gender = st.radio(
-                "Категория (для корректировки форы)",
-                ["Мужчины", "Женщины"],
-                index=0
-            )
+        # Выбор пола (можно менять вручную, если автоопределение ошибочно)
+        gender = st.radio(
+            "Категория (для корректировки форы)",
+            ["Мужчины", "Женщины"],
+            index=0 if st.session_state.detected_gender == "Мужчины" else 1,
+            help="Автоматически определено по URL, но вы можете изменить вручную."
+        )
+        
+        # Чекбокс нейтрального поля
+        neutral_field = st.checkbox("Нейтральное поле", help="При нейтральном поле корректировка форы происходит по отдельным формулам")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -702,15 +835,21 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # ----- Прогноз по очкам с корректировкой -----
+                # ----- Прогноз по очкам с учётом нейтрального поля -----
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
                 )
                 if gender == "Мужчины":
-                    adjusted = adjust_handicap_men(raw_handicap)
+                    if neutral_field:
+                        adjusted = adjust_handicap_men_neutral(raw_handicap)
+                    else:
+                        adjusted = adjust_handicap_men_home(raw_handicap)
                 else:
-                    adjusted = adjust_handicap_women(raw_handicap)
+                    if neutral_field:
+                        adjusted = adjust_handicap_women_neutral(raw_handicap)
+                    else:
+                        adjusted = adjust_handicap_women_home(raw_handicap)
 
                 st.subheader("⚖️ Прогноз по очкам (скорректированный)")
                 if adjusted > 0:
@@ -719,7 +858,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {'мужской' if gender == 'Мужчины' else 'женской'} таблице")
+                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {'мужской' if gender == 'Мужчины' else 'женской'} {'нейтральной' if neutral_field else 'домашней'} таблице")
 
                 # ----- Личные встречи (ручной ввод) -----
                 st.divider()
