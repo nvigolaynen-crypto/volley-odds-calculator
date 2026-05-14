@@ -9,105 +9,94 @@ from parsers.dataproject import DataProjectParser
 # Универсальный парсер таблиц (CSV, Excel, текст)
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
-    """
-    Парсит CSV, Excel или текст в DataFrame с колонками: Команда, Сеты, Мячи.
-    Для CSV с многострочным заголовком и итальянскими числами.
-    """
     if file_type == 'csv':
-        # Читаем CSV как текст, чтобы разобрать вручную
         content = data_source.getvalue().decode('utf-8')
         lines = content.splitlines()
         data = []
+        number_pattern = r'[\d]+(?:[.,]\d+)?'  # числа: целые или с точкой/запятой
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            # Ищем строку, начинающуюся с цифры и пробела (например "1 Abba Pineto")
-            if re.match(r'^\d+\s+[A-Za-z]', line):
-                # Извлекаем название команды: после номера и пробела, до первого числа
-                # Удаляем номер в начале
-                without_number = re.sub(r'^\d+\s+', '', line)
-                # Название — всё, что не является числом (или числом с точкой/запятой) до первой цифры
-                # Но проще: разобьём на части и соберём название как все нечисловые токены в начале
-                tokens = re.split(r'\s+', without_number)
-                team_parts = []
-                numbers = []
-                for tok in tokens:
-                    # Если токен похож на число (содержит цифры, точки, запятые)
-                    if re.match(r'^[\d\.,]+$', tok):
-                        numbers.append(tok)
-                    else:
-                        team_parts.append(tok)
-                team = ' '.join(team_parts)
-                if not team or len(numbers) < 4:
+            # Ищем строки, начинающиеся с цифры и пробела (номера команд)
+            if re.match(r'^\d+\s+', line):
+                numbers = re.findall(number_pattern, line)
+                if len(numbers) < 4:
                     continue
-                # Первые два числа — сеты
-                sets_won = int(float(numbers[0]))
-                sets_lost = int(float(numbers[1]))
-                # Следующие два числа — очки (убираем точки и заменяем запятую на точку)
-                pts_won_str = numbers[2].replace('.', '').replace(',', '.')
-                pts_lost_str = numbers[3].replace('.', '').replace(',', '.')
-                pts_won = int(float(pts_won_str))
-                pts_lost = int(float(pts_lost_str))
-                data.append({
-                    'Команда': team,
-                    'Сеты': f"{sets_won}:{sets_lost}",
-                    'Мячи': f"{pts_won}:{pts_lost}"
-                })
+                # Сеты (первые два числа)
+                try:
+                    sets_won = int(float(numbers[0].replace(',', '.')))
+                    sets_lost = int(float(numbers[1].replace(',', '.')))
+                except:
+                    continue
+                # Очки (убираем точки/запятые как разделители тысяч)
+                pts_won_str = numbers[2].replace('.', '').replace(',', '')
+                pts_lost_str = numbers[3].replace('.', '').replace(',', '')
+                try:
+                    pts_won = int(pts_won_str)
+                    pts_lost = int(pts_lost_str)
+                except:
+                    continue
+                # Название команды: всё между номером и первым числом
+                without_number = re.sub(r'^\d+\s+', '', line)
+                first_num_match = re.search(number_pattern, without_number)
+                if first_num_match:
+                    team = without_number[:first_num_match.start()].strip()
+                else:
+                    team = without_number.strip()
+                # Удаляем возможные запятые в конце названия
+                team = re.sub(r'[,;]\s*$', '', team).strip()
+                if team:
+                    data.append({
+                        'Команда': team,
+                        'Сеты': f"{sets_won}:{sets_lost}",
+                        'Мячи': f"{pts_won}:{pts_lost}"
+                    })
         if data:
             return pd.DataFrame(data)
-        else:
-            # fallback: попробуем стандартным pandas с разделителем-запятой
-            try:
-                df = pd.read_csv(data_source, sep=',', encoding='utf-8')
-                # Попытаемся найти нужные колонки по ключевым словам
-                team_col = None
-                sets_won_col = None
-                sets_lost_col = None
-                pts_won_col = None
-                pts_lost_col = None
-                for col in df.columns:
-                    col_low = str(col).lower()
-                    if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low or 'команда' in col_low:
-                        team_col = col
-                    if 'vinti' in col_low and 'set' in col_low:
-                        sets_won_col = col
-                    if 'persi' in col_low and 'set' in col_low:
-                        sets_lost_col = col
-                    if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
-                        pts_won_col = col
-                    if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
-                        pts_lost_col = col
-                if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
-                    data = []
-                    for _, row in df.iterrows():
-                        team = str(row[team_col]).strip()
-                        if not team or team == 'nan':
-                            continue
-                        try:
-                            sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
-                            sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
-                            pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
-                            pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
-                        except:
-                            continue
-                    if data:
-                        return pd.DataFrame(data)
-            except:
-                pass
-            return None
+        # fallback: стандартный pandas
+        try:
+            df = pd.read_csv(data_source, sep=None, engine='python', encoding='utf-8')
+            # Поиск колонок по ключевым словам (как раньше)
+            team_col, sets_won_col, sets_lost_col, pts_won_col, pts_lost_col = None, None, None, None, None
+            for col in df.columns:
+                col_low = str(col).lower()
+                if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+                    team_col = col
+                if 'vinti' in col_low and 'set' in col_low:
+                    sets_won_col = col
+                if 'persi' in col_low and 'set' in col_low:
+                    sets_lost_col = col
+                if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                    pts_won_col = col
+                if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                    pts_lost_col = col
+            if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+                rows = []
+                for _, row in df.iterrows():
+                    team = str(row[team_col]).strip()
+                    if not team or team == 'nan':
+                        continue
+                    try:
+                        sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                        sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                        pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                        pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                        rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                    except:
+                        continue
+                if rows:
+                    return pd.DataFrame(rows)
+        except Exception as e:
+            pass
+        return None
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
-        # Аналогичный поиск колонок
-        team_col = None
-        sets_won_col = None
-        sets_lost_col = None
-        pts_won_col = None
-        pts_lost_col = None
+        # Аналогичный поиск колонок (как в предыдущей версии)
+        team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
         for col in df_raw.columns:
             col_low = str(col).lower()
-            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low or 'команда' in col_low:
+            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
                 team_col = col
             if 'vinti' in col_low and 'set' in col_low:
                 sets_won_col = col
@@ -118,7 +107,7 @@ def parse_table_to_df(data_source, file_type=None):
             if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
                 pts_lost_col = col
         if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
-            data = []
+            rows = []
             for _, row in df_raw.iterrows():
                 team = str(row[team_col]).strip()
                 if not team or team == 'nan':
@@ -128,17 +117,16 @@ def parse_table_to_df(data_source, file_type=None):
                     sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
                     pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
                     pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                    data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
                 except:
                     continue
-            if data:
-                return pd.DataFrame(data)
+            if rows:
+                return pd.DataFrame(rows)
         return None
     else:  # text
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
-    """Парсит текстовую таблицу с командами (формат с ';' или пробелами)."""
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -258,7 +246,7 @@ with st.sidebar:
                         st.success(f"Таблица '{table_name}' создана ({len(df_new)} команд)")
                         st.rerun()
                     else:
-                        st.error("Не удалось распознать файл.")
+                        st.error("Не удалось распознать файл. Убедитесь, что он содержит команды, сеты и очки.")
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
 
@@ -418,7 +406,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # ----- Прогноз по сетам (нормализованные вероятности) -----
+                # Прогноз по сетам
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -434,12 +422,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     fav_prob = prob_away_norm
                 margin = 0.05
                 odds = (1 - margin) / fav_prob
-
                 st.subheader("📈 Прогноз по сетам")
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # ----- Прогноз по очкам (фора) -----
+                # Прогноз по очкам (фора)
                 total_matches_h = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
                 total_matches_a = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 30
                 total_matches = max(total_matches_h, total_matches_a, 1)
@@ -455,7 +442,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.info("Фора близка к нулю")
                 st.caption("Средняя разница очков за матч (оценка).")
 
-                # ----- Личные встречи (ручной ввод) -----
+                # Личные встречи (ручной ввод) – без изменений
                 st.divider()
                 st.subheader("📋 Личные встречи (ручной ввод)")
                 all_teams = teams if len(teams) > 1 else [home, away]
