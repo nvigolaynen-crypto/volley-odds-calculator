@@ -6,121 +6,145 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Улучшенный универсальный парсер таблиц (текст, CSV, Excel)
+# Универсальный парсер таблиц (CSV, Excel, текст)
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
     """
-    data_source: текст (str) или загруженный файл (BytesIO)
-    file_type: 'text', 'csv', 'xlsx'
-    Возвращает DataFrame с колонками: Команда, Сеты, Мячи
+    Парсит CSV, Excel или текст в DataFrame с колонками: Команда, Сеты, Мячи.
+    Для CSV с многострочным заголовком и итальянскими числами.
     """
     if file_type == 'csv':
-        # Пробуем разные разделители
-        for sep in [',', ';', '\t']:
-            try:
-                df_raw = pd.read_csv(data_source, sep=sep, encoding='utf-8', engine='python')
-                if df_raw.shape[1] > 1:
-                    break
-            except:
+        # Читаем CSV как текст, чтобы разобрать вручную
+        content = data_source.getvalue().decode('utf-8')
+        lines = content.splitlines()
+        data = []
+        for line in lines:
+            line = line.strip()
+            if not line:
                 continue
-        # Если не получилось, читаем как текст
-        if df_raw is None or df_raw.shape[1] < 2:
-            content = data_source.getvalue().decode('utf-8')
-            return parse_text_to_df(content)
+            # Ищем строку, начинающуюся с цифры и пробела (например "1 Abba Pineto")
+            if re.match(r'^\d+\s+[A-Za-z]', line):
+                # Извлекаем название команды: после номера и пробела, до первого числа
+                # Удаляем номер в начале
+                without_number = re.sub(r'^\d+\s+', '', line)
+                # Название — всё, что не является числом (или числом с точкой/запятой) до первой цифры
+                # Но проще: разобьём на части и соберём название как все нечисловые токены в начале
+                tokens = re.split(r'\s+', without_number)
+                team_parts = []
+                numbers = []
+                for tok in tokens:
+                    # Если токен похож на число (содержит цифры, точки, запятые)
+                    if re.match(r'^[\d\.,]+$', tok):
+                        numbers.append(tok)
+                    else:
+                        team_parts.append(tok)
+                team = ' '.join(team_parts)
+                if not team or len(numbers) < 4:
+                    continue
+                # Первые два числа — сеты
+                sets_won = int(float(numbers[0]))
+                sets_lost = int(float(numbers[1]))
+                # Следующие два числа — очки (убираем точки и заменяем запятую на точку)
+                pts_won_str = numbers[2].replace('.', '').replace(',', '.')
+                pts_lost_str = numbers[3].replace('.', '').replace(',', '.')
+                pts_won = int(float(pts_won_str))
+                pts_lost = int(float(pts_lost_str))
+                data.append({
+                    'Команда': team,
+                    'Сеты': f"{sets_won}:{sets_lost}",
+                    'Мячи': f"{pts_won}:{pts_lost}"
+                })
+        if data:
+            return pd.DataFrame(data)
+        else:
+            # fallback: попробуем стандартным pandas с разделителем-запятой
+            try:
+                df = pd.read_csv(data_source, sep=',', encoding='utf-8')
+                # Попытаемся найти нужные колонки по ключевым словам
+                team_col = None
+                sets_won_col = None
+                sets_lost_col = None
+                pts_won_col = None
+                pts_lost_col = None
+                for col in df.columns:
+                    col_low = str(col).lower()
+                    if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low or 'команда' in col_low:
+                        team_col = col
+                    if 'vinti' in col_low and 'set' in col_low:
+                        sets_won_col = col
+                    if 'persi' in col_low and 'set' in col_low:
+                        sets_lost_col = col
+                    if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                        pts_won_col = col
+                    if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                        pts_lost_col = col
+                if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+                    data = []
+                    for _, row in df.iterrows():
+                        team = str(row[team_col]).strip()
+                        if not team or team == 'nan':
+                            continue
+                        try:
+                            sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                            sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                            pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                            pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                        except:
+                            continue
+                    if data:
+                        return pd.DataFrame(data)
+            except:
+                pass
+            return None
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
+        # Аналогичный поиск колонок
+        team_col = None
+        sets_won_col = None
+        sets_lost_col = None
+        pts_won_col = None
+        pts_lost_col = None
+        for col in df_raw.columns:
+            col_low = str(col).lower()
+            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low or 'команда' in col_low:
+                team_col = col
+            if 'vinti' in col_low and 'set' in col_low:
+                sets_won_col = col
+            if 'persi' in col_low and 'set' in col_low:
+                sets_lost_col = col
+            if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                pts_won_col = col
+            if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                pts_lost_col = col
+        if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+            data = []
+            for _, row in df_raw.iterrows():
+                team = str(row[team_col]).strip()
+                if not team or team == 'nan':
+                    continue
+                try:
+                    sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                    sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                    pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                    pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                    data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                except:
+                    continue
+            if data:
+                return pd.DataFrame(data)
+        return None
     else:  # text
         return parse_text_to_df(data_source)
-    
-    # Ищем строку с заголовками (первая строка, где есть слова "Vinti", "Persi", "Fatti", "Subiti" и т.п.)
-    header_row_idx = None
-    for i, row in df_raw.iterrows():
-        row_str = ' '.join([str(x).lower() for x in row.values if pd.notna(x)])
-        if 'vinti' in row_str or 'persi' in row_str or 'fatti' in row_str or 'subiti' in row_str:
-            header_row_idx = i
-            break
-    if header_row_idx is not None:
-        # Устанавливаем заголовки
-        df_raw.columns = df_raw.iloc[header_row_idx]
-        df_raw = df_raw.iloc[header_row_idx+1:].reset_index(drop=True)
-    else:
-        # Попробуем предположить, что первая строка - названия команд, затем идут числа
-        # Удаляем пустые колонки
-        df_raw = df_raw.dropna(axis=1, how='all')
-    
-    # Определяем колонки
-    team_col = None
-    sets_won_col = None
-    sets_lost_col = None
-    points_won_col = None
-    points_lost_col = None
-    
-    for col in df_raw.columns:
-        col_lower = str(col).lower()
-        if 'squadra' in col_lower or 'team' in col_lower or 'nome' in col_lower or 'команда' in col_lower:
-            team_col = col
-        if 'vinti' in col_lower and ('set' in col_lower or 'vitt' in col_lower):
-            sets_won_col = col
-        if 'persi' in col_lower and ('set' in col_lower or 'sconf' in col_lower):
-            sets_lost_col = col
-        if 'fatti' in col_lower or ('punti' in col_lower and 'fat' in col_lower):
-            points_won_col = col
-        if 'subiti' in col_lower or ('punti' in col_lower and 'sub' in col_lower):
-            points_lost_col = col
-    
-    # Если не нашли по названиям, пробуем по позициям (примерно: первая колонка - команда, далее сеты и очки)
-    if team_col is None and len(df_raw.columns) >= 5:
-        team_col = df_raw.columns[0]
-        sets_won_col = df_raw.columns[1]
-        sets_lost_col = df_raw.columns[2]
-        points_won_col = df_raw.columns[3]
-        points_lost_col = df_raw.columns[4]
-    
-    if team_col is None or sets_won_col is None or sets_lost_col is None or points_won_col is None or points_lost_col is None:
-        return None  # не удалось распознать
-    
-    # Извлекаем данные
-    data = []
-    for idx, row in df_raw.iterrows():
-        team = str(row[team_col]).strip()
-        if not team or team == 'nan' or team.startswith('Classifica'):
-            continue
-        try:
-            sets_w = str(row[sets_won_col]).replace(',', '.').strip()
-            sets_l = str(row[sets_lost_col]).replace(',', '.').strip()
-            pts_w = str(row[points_won_col]).replace(',', '.').strip()
-            pts_l = str(row[points_lost_col]).replace(',', '.').strip()
-            # Преобразуем в числа (убираем точки-разделители тысяч)
-            sets_w = int(float(sets_w)) if '.' in sets_w else int(sets_w)
-            sets_l = int(float(sets_l)) if '.' in sets_l else int(sets_l)
-            pts_w = int(float(pts_w.replace('.', ''))) if '.' in pts_w else int(pts_w)
-            pts_l = int(float(pts_l.replace('.', ''))) if '.' in pts_l else int(pts_l)
-            data.append({
-                'Команда': team,
-                'Сеты': f"{sets_w}:{sets_l}",
-                'Мячи': f"{pts_w}:{pts_l}"
-            })
-        except:
-            continue
-    if data:
-        return pd.DataFrame(data)
-    return None
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
-    """
-    Парсит текстовую таблицу с командами.
-    Поддерживает:
-    - Формат с разделителем ';': Название;Сеты;Мячи
-    - Формат с пробелами/табуляцией: Название  Сеты_В  Сеты_П  Очки_В  Очки_П ...
-    - Многострочные таблицы (игнорирует строки без чисел)
-    """
+    """Парсит текстовую таблицу с командами (формат с ';' или пробелами)."""
     lines = text.strip().split('\n')
     data = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        # Если есть ';' - простой формат
         if ';' in line:
             parts = line.split(';')
             if len(parts) >= 3:
@@ -130,15 +154,12 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
                 if ':' in sets and ':' in points:
                     data.append({'Команда': team, 'Сеты': sets, 'Мячи': points})
             continue
-        # Разбиваем по пробельным символам
         tokens = re.split(r'\s+', line)
         if len(tokens) < 5:
             continue
-        # Ищем название (все нецифровые токены в начале)
         team_parts = []
         numbers = []
         for token in tokens:
-            # Если токен состоит из цифр, точки или запятой (число)
             if re.match(r'^[\d\.,]+$', token):
                 numbers.append(token)
             else:
@@ -146,17 +167,12 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         if not team_parts or len(numbers) < 4:
             continue
         team = ' '.join(team_parts)
-        # Первые два числа - сеты, следующие два - очки
         try:
             sets_w = int(float(numbers[0]))
             sets_l = int(float(numbers[1]))
-            pts_w = int(float(numbers[2].replace('.', '').replace(',', '')))
-            pts_l = int(float(numbers[3].replace('.', '').replace(',', '')))
-            data.append({
-                'Команда': team,
-                'Сеты': f"{sets_w}:{sets_l}",
-                'Мячи': f"{pts_w}:{pts_l}"
-            })
+            pts_w = int(float(numbers[2].replace('.', '').replace(',', '.')))
+            pts_l = int(float(numbers[3].replace('.', '').replace(',', '.')))
+            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
         except:
             continue
     if data:
@@ -220,7 +236,7 @@ with st.sidebar:
         table_name = st.text_input("Название таблицы")
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
-            text_data = st.text_area("Введите данные (формат: команда;сеты;мячи или команда   сеты_в   сеты_п   очки_в   очки_п)", height=250)
+            text_data = st.text_area("Введите данные", height=250)
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
@@ -242,7 +258,7 @@ with st.sidebar:
                         st.success(f"Таблица '{table_name}' создана ({len(df_new)} команд)")
                         st.rerun()
                     else:
-                        st.error("Не удалось распознать файл. Убедитесь, что в нём есть колонки с командами, сетами и очками.")
+                        st.error("Не удалось распознать файл.")
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
 
