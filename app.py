@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import math
+import json
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
@@ -13,49 +14,46 @@ def parse_table_to_df(data_source, file_type=None):
         content = data_source.getvalue().decode('utf-8')
         lines = content.splitlines()
         data = []
-        # Ищем строки данных: начинаются с цифры
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            if not re.match(r'^\d+', line):
-                continue  # пропускаем заголовки
-            # Разбиваем по запятой (CSV разделитель)
-            parts = line.split(',')
-            if len(parts) < 16:
-                continue
-            # Название команды из первого поля (номер + пробел + название)
-            first = parts[0].strip()
-            m = re.match(r'^\d+\s+(.*)', first)
-            if m:
-                team_name = m.group(1).strip()
-            else:
-                team_name = first.strip()
-            # Сеты: 13-й и 14-й элементы (индексы 12 и 13)
-            try:
-                sets_won = int(parts[12].strip())
-                sets_lost = int(parts[13].strip())
-            except:
-                continue
-            # Очки: 15-й и 16-й элементы (индексы 14 и 15), убираем точки
-            try:
-                pts_won_str = parts[14].strip().replace('.', '')
-                pts_lost_str = parts[15].strip().replace('.', '')
-                pts_won = int(pts_won_str)
-                pts_lost = int(pts_lost_str)
-            except:
-                continue
-            data.append({
-                'Команда': team_name,
-                'Сеты': f"{sets_won}:{sets_lost}",
-                'Мячи': f"{pts_won}:{pts_lost}"
-            })
+            # Ищем строку, начинающуюся с цифры и пробела
+            if re.match(r'^\d+\s+', line):
+                # Разбиваем по запятой (CSV)
+                fields = line.split(',')
+                if len(fields) < 16:
+                    continue
+                # Название команды: первое поле, убираем номер
+                team_field = fields[0].strip()
+                team = re.sub(r'^\d+\s+', '', team_field).strip()
+                if not team:
+                    continue
+                # Сеты: 13-е и 14-е поля (индексы 12, 13)
+                try:
+                    sets_won = int(float(fields[12].strip()))
+                    sets_lost = int(float(fields[13].strip()))
+                except:
+                    continue
+                # Очки: 15-е и 16-е поля (индексы 14, 15), убираем точки
+                pts_won_str = fields[14].strip().replace('.', '')
+                pts_lost_str = fields[15].strip().replace('.', '')
+                try:
+                    pts_won = int(pts_won_str)
+                    pts_lost = int(pts_lost_str)
+                except:
+                    continue
+                data.append({
+                    'Команда': team,
+                    'Сеты': f"{sets_won}:{sets_lost}",
+                    'Мячи': f"{pts_won}:{pts_lost}"
+                })
         if data:
             return pd.DataFrame(data)
         return None
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
-        # Поиск колонок по ключевым словам
+        # Поиск колонок
         team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
         for col in df_raw.columns:
             col_low = str(col).lower()
@@ -142,6 +140,28 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
+# Новая функция расчёта форы по очкам (сбалансированный метод)
+# ------------------------------------------------------------
+def calculate_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l,
+                       a_sets_w, a_sets_l, a_pts_w, a_pts_l):
+    # Количество матчей (оценка по сетам)
+    h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
+    a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
+    
+    # Средние за матч
+    home_avg_scored = h_pts_w / h_matches
+    home_avg_conceded = h_pts_l / h_matches
+    away_avg_scored = a_pts_w / a_matches
+    away_avg_conceded = a_pts_l / a_matches
+    
+    # Ожидаемые очки в матче
+    expected_home = (home_avg_scored + away_avg_conceded) / 2
+    expected_away = (away_avg_scored + home_avg_conceded) / 2
+    
+    handicap = expected_home - expected_away
+    return round(handicap, 1), expected_home, expected_away
+
+# ------------------------------------------------------------
 # Парсеры для автоматических URL
 # ------------------------------------------------------------
 def get_parser_by_url(url: str):
@@ -162,7 +182,7 @@ def load_teams_from_url(url, combine_phases):
     return None, error or "Не удалось загрузить данные"
 
 # ------------------------------------------------------------
-# Инициализация Streamlit
+# Инициализация Streamlit и загрузка таблиц из localStorage (через импорт/экспорт)
 # ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
@@ -179,15 +199,39 @@ if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 
 # ------------------------------------------------------------
-# Боковая панель: менеджер пользовательских таблиц
+# Боковая панель: менеджер пользовательских таблиц + экспорт/импорт
 # ------------------------------------------------------------
 with st.sidebar:
     st.header("📁 Мои таблицы")
+    
+    col_exp, col_imp, col_clear = st.columns(3)
+    with col_exp:
+        if st.button("💾 Экспорт всех таблиц"):
+            tables_json = json.dumps({name: df.to_dict(orient='records') for name, df in st.session_state.user_tables.items()})
+            st.download_button("Скачать JSON", tables_json, file_name="volley_tables.json", mime="application/json")
+    with col_imp:
+        uploaded_json = st.file_uploader("📂 Импорт JSON", type=['json'], key="import_json")
+        if uploaded_json:
+            try:
+                imported = json.load(uploaded_json)
+                for name, data in imported.items():
+                    df = pd.DataFrame(data)
+                    if 'Команда' in df.columns and 'Сеты' in df.columns and 'Мячи' in df.columns:
+                        st.session_state.user_tables[name] = df
+                st.success(f"Импортировано {len(imported)} таблиц")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Ошибка импорта: {e}")
+    with col_clear:
+        if st.button("🗑️ Очистить все таблицы"):
+            st.session_state.user_tables = {}
+            st.rerun()
+    
     with st.expander("➕ Новая таблица"):
         table_name = st.text_input("Название таблицы")
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
-            text_data = st.text_area("Введите данные", height=250)
+            text_data = st.text_area("Введите данные (команда;сеты;мячи)", height=200)
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
@@ -195,7 +239,7 @@ with st.sidebar:
                     st.success(f"Таблица '{table_name}' создана ({len(df_new)} команд)")
                     st.rerun()
                 else:
-                    st.error("Не удалось распознать данные. Проверьте формат.")
+                    st.error("Не удалось распознать данные")
         else:
             uploaded_file = st.file_uploader("CSV или Excel", type=['csv', 'xlsx'])
             if uploaded_file and st.button("Создать таблицу"):
@@ -209,7 +253,7 @@ with st.sidebar:
                         st.success(f"Таблица '{table_name}' создана ({len(df_new)} команд)")
                         st.rerun()
                     else:
-                        st.error("Не удалось распознать файл. Убедитесь, что он содержит команды, сеты и очки.")
+                        st.error("Не удалось распознать файл")
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
 
@@ -261,7 +305,7 @@ with st.sidebar:
                     except Exception as e:
                         st.error(str(e))
     else:
-        st.info("Нет сохранённых таблиц. Создайте новую.")
+        st.info("Нет сохранённых таблиц. Создайте новую или импортируйте JSON.")
 
 # ------------------------------------------------------------
 # Основная область: выбор источника данных
@@ -338,7 +382,7 @@ elif st.session_state.active_source == "user_table":
             st.session_state.selected_user_table = selected
             st.success(f"Активирована '{selected}'")
     else:
-        st.warning("Нет таблиц. Создайте в боковой панели.")
+        st.warning("Нет таблиц. Создайте или импортируйте.")
 
 # ------------------------------------------------------------
 # Прогноз
@@ -369,7 +413,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # Прогноз по сетам
+                # ----- Прогноз по сетам (нормализованные вероятности) -----
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -389,13 +433,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # Прогноз по очкам (фора)
-                total_matches_h = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
-                total_matches_a = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 30
-                total_matches = max(total_matches_h, total_matches_a, 1)
-                home_avg_pts = (h_bv - h_bp) / total_matches
-                away_avg_pts = (a_bv - a_bp) / total_matches
-                handicap = round(home_avg_pts - away_avg_pts, 1)
+                # ----- Прогноз по очкам (новая математика) -----
+                handicap, exp_home, exp_away = calculate_handicap(
+                    h_sv, h_sp, h_bv, h_bp,
+                    a_sv, a_sp, a_bv, a_bp
+                )
                 st.subheader("⚖️ Прогноз по очкам (фора)")
                 if handicap > 0:
                     st.success(f"Фора на матч: {handicap} (в пользу хозяев)")
@@ -403,9 +445,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: {handicap} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption("Средняя разница очков за матч (оценка).")
+                st.caption(f"Ожидаемые очки: {exp_home:.1f} – {exp_away:.1f} (метод: (среднее нападение хозяев + средняя защита гостей)/2 и аналогично)")
 
-                # Личные встречи (ручной ввод) – без изменений
+                # ----- Личные встречи (ручной ввод) -----
                 st.divider()
                 st.subheader("📋 Личные встречи (ручной ввод)")
                 all_teams = teams if len(teams) > 1 else [home, away]
