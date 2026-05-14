@@ -152,17 +152,201 @@ def adjust_handicap_women(handicap: float) -> float:
         return handicap * 1.3
 
 # ------------------------------------------------------------
-# Универсальный парсер таблиц (без изменений, он же был)
+# Определение пола по URL
+# ------------------------------------------------------------
+def detect_gender_by_url(url: str) -> str:
+    """Возвращает 'Мужчины' или 'Женщины' на основе URL, или None если не определено."""
+    url_lower = url.lower()
+    # Женские индикаторы
+    if any(x in url_lower for x in ['femminile', 'women', 'kadinlar', 'liga kobiet', 'womens', 'legavolleyfemminile']):
+        return "Женщины"
+    # Мужские индикаторы
+    if any(x in url_lower for x in ['superlega', 'plusliga', 'legavolley.it', 'volley.ru/men', 'volley.ru']):
+        return "Мужчины"
+    # Если ни один не сработал, возвращаем None
+    return None
+
+# ------------------------------------------------------------
+# Универсальный парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
 # ------------------------------------------------------------
 def parse_table_to_df(data_source, file_type=None):
-    # ... (код остаётся без изменений, такой же как в предыдущей версии) ...
-    # Для экономии места здесь не повторяю, но в итоговом файле он должен быть полностью.
-    # Вставьте сюда полную функцию из предыдущего ответа.
-    pass
+    if file_type == 'csv':
+        content = data_source.getvalue().decode('utf-8')
+        lines = content.splitlines()
+        data = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if re.match(r'^\d+\s+', line):
+                fields = line.split(',')
+                if len(fields) < 16:
+                    continue
+                team_field = fields[0].strip()
+                team = re.sub(r'^\d+\s+', '', team_field).strip()
+                if not team:
+                    continue
+                try:
+                    sets_won = int(float(fields[12].strip()))
+                    sets_lost = int(float(fields[13].strip()))
+                except:
+                    continue
+                pts_won_str = fields[14].strip().replace('.', '')
+                pts_lost_str = fields[15].strip().replace('.', '')
+                try:
+                    pts_won = int(pts_won_str)
+                    pts_lost = int(pts_lost_str)
+                except:
+                    continue
+                matches = None
+                if len(fields) > 16:
+                    try:
+                        matches = int(float(fields[16].strip()))
+                    except:
+                        pass
+                data.append({
+                    'Команда': team,
+                    'Сеты': f"{sets_won}:{sets_lost}",
+                    'Мячи': f"{pts_won}:{pts_lost}",
+                    'Матчи': matches
+                })
+        if data:
+            return pd.DataFrame(data)
+        # fallback: стандартный pandas
+        try:
+            df = pd.read_csv(data_source, encoding='utf-8')
+            if 'Матчи' in df.columns:
+                pass
+            elif 'Matches' in df.columns:
+                df.rename(columns={'Matches': 'Матчи'}, inplace=True)
+            team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+            for col in df.columns:
+                col_low = str(col).lower()
+                if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+                    team_col = col
+                if 'vinti' in col_low and 'set' in col_low:
+                    sets_won_col = col
+                if 'persi' in col_low and 'set' in col_low:
+                    sets_lost_col = col
+                if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                    pts_won_col = col
+                if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                    pts_lost_col = col
+            if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+                rows = []
+                for _, row in df.iterrows():
+                    team = str(row[team_col]).strip()
+                    if not team or team == 'nan':
+                        continue
+                    try:
+                        sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                        sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                        pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                        pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                        matches = None
+                        if 'Матчи' in df.columns:
+                            try:
+                                matches = int(float(str(row['Матчи']).replace(',', '.')))
+                            except:
+                                pass
+                        rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
+                    except:
+                        continue
+                if rows:
+                    return pd.DataFrame(rows)
+        except Exception as e:
+            pass
+        return None
+    elif file_type == 'xlsx':
+        df_raw = pd.read_excel(data_source)
+        team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+        matches_col = None
+        for col in df_raw.columns:
+            col_low = str(col).lower()
+            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+                team_col = col
+            if 'vinti' in col_low and 'set' in col_low:
+                sets_won_col = col
+            if 'persi' in col_low and 'set' in col_low:
+                sets_lost_col = col
+            if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                pts_won_col = col
+            if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                pts_lost_col = col
+            if 'матчи' in col_low or 'matches' in col_low:
+                matches_col = col
+        if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+            rows = []
+            for _, row in df_raw.iterrows():
+                team = str(row[team_col]).strip()
+                if not team or team == 'nan':
+                    continue
+                try:
+                    sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                    sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                    pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                    pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                    matches = None
+                    if matches_col:
+                        try:
+                            matches = int(float(str(row[matches_col]).replace(',', '.')))
+                        except:
+                            pass
+                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
+                except:
+                    continue
+            if rows:
+                return pd.DataFrame(rows)
+        return None
+    else:  # text
+        return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
-    # ... (аналогично) ...
-    pass
+    lines = text.strip().split('\n')
+    data = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if ';' in line:
+            parts = line.split(';')
+            if len(parts) >= 3:
+                team = parts[0].strip()
+                sets = parts[1].strip()
+                points = parts[2].strip()
+                matches = None
+                if len(parts) >= 4:
+                    try:
+                        matches = int(parts[3].strip())
+                    except:
+                        pass
+                if ':' in sets and ':' in points:
+                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points, 'Матчи': matches})
+            continue
+        tokens = re.split(r'\s+', line)
+        if len(tokens) < 5:
+            continue
+        team_parts = []
+        numbers = []
+        for token in tokens:
+            if re.match(r'^[\d\.,]+$', token):
+                numbers.append(token)
+            else:
+                team_parts.append(token)
+        if not team_parts or len(numbers) < 4:
+            continue
+        team = ' '.join(team_parts)
+        try:
+            sets_w = int(float(numbers[0]))
+            sets_l = int(float(numbers[1]))
+            pts_w = int(float(numbers[2].replace('.', '').replace(',', '.')))
+            pts_l = int(float(numbers[3].replace('.', '').replace(',', '.')))
+            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': None})
+        except:
+            continue
+    if data:
+        return pd.DataFrame(data)
+    return None
 
 # ------------------------------------------------------------
 # Функция вероятности выиграть матч
@@ -176,7 +360,7 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Расчёт сырой форы (A992/A993)
+# Расчёт сырой форы
 # ------------------------------------------------------------
 def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                            a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
@@ -228,9 +412,11 @@ if 'user_tables' not in st.session_state:
     st.session_state.user_tables = {}
 if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
+if 'detected_gender' not in st.session_state:
+    st.session_state.detected_gender = None  # будет "Мужчины" или "Женщины"
 
 # ------------------------------------------------------------
-# Боковая панель: менеджер таблиц + экспорт/импорт (без изменений)
+# Боковая панель: менеджер таблиц + экспорт/импорт
 # ------------------------------------------------------------
 with st.sidebar:
     st.header("📁 Мои таблицы")
@@ -369,10 +555,18 @@ if st.session_state.active_source == "auto":
                 df, err = load_teams_from_url(url, combine)
                 if df is not None:
                     st.session_state.df_teams = df
-                    st.success(f"Загружено {len(df)} команд")
+                    # Автоопределение пола по URL
+                    detected = detect_gender_by_url(url)
+                    if detected:
+                        st.session_state.detected_gender = detected
+                        st.success(f"Загружено {len(df)} команд. Определён пол: {detected}")
+                    else:
+                        st.session_state.detected_gender = "Мужчины"
+                        st.info("Не удалось определить пол, установлен 'Мужчины' (можно изменить ниже, если нужно).")
                 else:
                     st.error(err)
     
+    # После загрузки данных – возможность вручную указать количество матчей
     if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
         with st.expander("⚙️ Указать количество сыгранных матчей (для корректного расчёта форы по очкам)"):
             st.markdown("Если в данных из URL нет точного числа матчей, вы можете задать его вручную.")
@@ -416,6 +610,9 @@ elif st.session_state.active_source == "manual_pair":
                 'Матчи': [h_m, a_m]
             })
             st.session_state.df_teams = df
+            # Для ручного ввода пол не определён, оставляем как было (можно доопределить ниже)
+            if st.session_state.detected_gender is None:
+                st.session_state.detected_gender = "Мужчины"  # по умолчанию
             st.success("Сохранено")
 
 # ------------------------------------------------------------
@@ -427,12 +624,15 @@ elif st.session_state.active_source == "user_table":
         if st.button("Активировать"):
             st.session_state.df_teams = st.session_state.user_tables[selected]
             st.session_state.selected_user_table = selected
+            # Для загруженной таблицы пол не определён, пользователь должен выбрать вручную
+            if st.session_state.detected_gender is None:
+                st.session_state.detected_gender = "Мужчины"  # по умолчанию
             st.success(f"Активирована '{selected}'")
     else:
         st.warning("Нет таблиц. Создайте или импортируйте.")
 
 # ------------------------------------------------------------
-# Прогноз (с выбором пола)
+# Прогноз (с отображением определённого пола и возможностью ручного изменения)
 # ------------------------------------------------------------
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
@@ -441,12 +641,20 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         teams = st.session_state.df_teams['Команда'].tolist()
         st.subheader("📊 Прогноз на матч")
         
-        # ---- Выбор пола для корректировки форы ----
-        gender = st.radio(
-            "Выберите категорию для корректировки форы",
-            ["Мужчины", "Женщины"],
-            horizontal=True
-        )
+        # Показываем определённый пол и даём возможность изменить вручную (если автоопределение ошиблось)
+        if st.session_state.detected_gender:
+            gender = st.radio(
+                "Категория (для корректировки форы)",
+                ["Мужчины", "Женщины"],
+                index=0 if st.session_state.detected_gender == "Мужчины" else 1,
+                help="Автоматически определено по URL, но вы можете изменить вручную."
+            )
+        else:
+            gender = st.radio(
+                "Категория (для корректировки форы)",
+                ["Мужчины", "Женщины"],
+                index=0
+            )
         
         col1, col2 = st.columns(2)
         with col1:
@@ -494,7 +702,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # ----- Прогноз по очкам с корректировкой по полу -----
+                # ----- Прогноз по очкам с корректировкой -----
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
@@ -511,7 +719,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption(f"Исходная фора (A992/A993): {raw_handicap:.1f} → скорректировано по {'мужской' if gender == 'Мужчины' else 'женской'} таблице")
+                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {'мужской' if gender == 'Мужчины' else 'женской'} таблице")
 
                 # ----- Личные встречи (ручной ввод) -----
                 st.divider()
