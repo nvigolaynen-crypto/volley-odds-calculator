@@ -296,7 +296,6 @@ def adjust_handicap_women_neutral(handicap: float) -> float:
     else:
         return handicap * 1.3
 
-# ---------- Специальные для 2 и 3 матчей ----------
 def adjust_handicap_men_2matches(handicap: float) -> float:
     if handicap <= -33.5:
         return handicap * 1.33
@@ -739,13 +738,18 @@ def prob_win_match(p: float) -> float:
     q = 1 - p
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
+def compute_raw_handicap_without_h2h(h_data, a_data):
+    h_matches = h_data['matches'] if h_data['matches'] is not None else (h_data['sets_w'] + h_data['sets_l']) // 3
+    a_matches = a_data['matches'] if a_data['matches'] is not None else (a_data['sets_w'] + a_data['sets_l']) // 3
+    if h_matches is None or h_matches <= 0:
+        h_matches = (h_data['sets_w'] + h_data['sets_l']) // 3 if (h_data['sets_w'] + h_data['sets_l']) > 0 else 1
+    if a_matches is None or a_matches <= 0:
+        a_matches = (a_data['sets_w'] + a_data['sets_l']) // 3 if (a_data['sets_w'] + a_data['sets_l']) > 0 else 1
+    avg_h = (h_data['pts_w'] - h_data['pts_l']) / h_matches
+    avg_a = (a_data['pts_w'] - a_data['pts_l']) / a_matches
+    return avg_h - avg_a, h_matches, a_matches
+
 def compute_raw_handicap_with_h2h(h_data, a_data, h2h_encounters):
-    """
-    h_data: dict с ключами 'name','sets_w','sets_l','pts_w','pts_l','matches'
-    a_data: аналогично
-    h2h_encounters: список dict с ключами 'home','away','pts_diff'
-    Возвращает raw_handicap, (h_matches_adj, a_matches_adj), (h_pts_diff_adj, a_pts_diff_adj)
-    """
     h_pts_diff_orig = h_data['pts_w'] - h_data['pts_l']
     a_pts_diff_orig = a_data['pts_w'] - a_data['pts_l']
     h_matches_orig = h_data['matches'] if h_data['matches'] is not None else None
@@ -775,8 +779,7 @@ def compute_raw_handicap_with_h2h(h_data, a_data, h2h_encounters):
 
     avg_h = h_pts_diff_adj / h_matches_adj
     avg_a = a_pts_diff_adj / a_matches_adj
-    raw_handicap = avg_h - avg_a
-    return raw_handicap, (h_matches_adj, a_matches_adj), (h_pts_diff_adj, a_pts_diff_adj)
+    return avg_h - avg_a, h_matches_adj, a_matches_adj
 
 def detect_gender_by_url(url: str) -> str:
     url_lower = url.lower()
@@ -1040,6 +1043,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             help="Автоматически определено по URL, но вы можете изменить вручную."
         )
         neutral_field = st.checkbox("Нейтральное поле", help="При нейтральном поле корректировка форы происходит по отдельным формулам")
+        subtract_h2h = st.checkbox("Вычитать личные встречи из статистики", value=False, help="Если включено, то разницы в очках из личных встреч будут вычтены из общей статистики команд")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1084,7 +1088,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # --- Прогноз по сетам ---
+                # --- Прогноз по сетам (без изменений) ---
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -1104,7 +1108,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # --- Прогноз по очкам с учётом H2H ---
+                # --- Прогноз по очкам с учётом чекбокса вычитания H2H ---
                 home_data = {
                     'name': home,
                     'sets_w': h_sv, 'sets_l': h_sp,
@@ -1117,11 +1121,17 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     'pts_w': a_bv, 'pts_l': a_bp,
                     'matches': a_matches
                 }
-                raw_handicap, (h_adj_m, a_adj_m), (h_adj_diff, a_adj_diff) = compute_raw_handicap_with_h2h(
-                    home_data, away_data, h2h_encounters
-                )
+                
+                if subtract_h2h and h2h_encounters:
+                    raw_handicap, h_adj_m, a_adj_m = compute_raw_handicap_with_h2h(home_data, away_data, h2h_encounters)
+                    matches_info = f"Матчей после вычета H2H: хозяева – {h_adj_m}, гости – {a_adj_m}"
+                else:
+                    raw_handicap, h_adj_m, a_adj_m = compute_raw_handicap_without_h2h(home_data, away_data)
+                    matches_info = f"Исходное количество матчей: хозяева – {h_adj_m}, гости – {a_adj_m}"
+                
                 min_matches = min(h_adj_m, a_adj_m)
                 
+                # Выбор корректирующей функции
                 if gender == "Мужчины":
                     if min_matches == 2:
                         adjusted = adjust_handicap_men_2matches(raw_handicap)
@@ -1160,8 +1170,8 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.info("Фора близка к нулю")
                 
                 st.caption(f"Исходная фора (сырая): {raw_handicap:.1f}\n"
-                           f"Матчей после вычета H2H: хозяева – {h_adj_m}, гости – {a_adj_m}\n"
-                           f"Сумма разниц H2H для хозяев: {raw_handicap:.1f} → скорректировано по {corr_type} таблице")
+                           f"{matches_info}\n"
+                           f"Скорректировано по {corr_type} таблице")
 
                 # --- Личные встречи (ручной ввод) ---
                 st.divider()
