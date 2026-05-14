@@ -73,7 +73,6 @@ with st.form("load_form"):
 # ------------------------------------------------------------
 st.subheader("Команды")
 
-# Чекбокс ручного ввода с обработкой изменения
 manual_mode = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
 if manual_mode != st.session_state.manual_mode:
     st.session_state.manual_mode = manual_mode
@@ -143,24 +142,20 @@ if st.button("Рассчитать котировки", use_container_width=True
         st.error("Выберите разные команды.")
     else:
         # ========== ПРОГНОЗ ПО СЕТАМ (на фаворита) ==========
-        st.subheader("📈 Прогноз по сетам")
         home_winrate = home_sets_v / (home_sets_v + home_sets_p) if (home_sets_v + home_sets_p) > 0 else 0.5
         away_winrate = away_sets_v / (away_sets_v + away_sets_p) if (away_sets_v + away_sets_p) > 0 else 0.5
         
         if home_winrate > away_winrate:
             favorite = home_name
-            fav_winrate = home_winrate
         else:
             favorite = away_name
-            fav_winrate = away_winrate
         
+        fav_winrate = max(home_winrate, away_winrate)
         margin = 0.05
         odds_fav = (1 - margin) / fav_winrate if fav_winrate > 0 else 0
         
-        st.write(f"**Фаворит:** {favorite}")
-        st.write(f"**Вероятность победы фаворита:** {fav_winrate:.1%}")
-        st.write(f"**Коэффициент на победу фаворита (с маржой 5%):** {odds_fav:.2f}")
-        st.caption("Основано на проценте выигранных сетов.")
+        st.subheader("📈 Прогноз по сетам")
+        st.write(f"**Победа {favorite}** – коэффициент {odds_fav:.2f}")
         
         # ========== ПРОГНОЗ ПО ОЧКАМ (фора на хозяев) ==========
         st.subheader("⚖️ Прогноз по очкам (фора)")
@@ -175,7 +170,6 @@ if st.button("Рассчитать котировки", use_container_width=True
             st.success(f"**Фора на матч:** {handicap} (в пользу гостей)")
         else:
             st.info("Фора близка к нулю – команды примерно равны")
-        st.caption("Средняя разница очков за матч (хозяева − гости).")
         
         # ========== ЛИЧНЫЕ ВСТРЕЧИ ==========
         st.divider()
