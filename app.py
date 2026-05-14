@@ -71,82 +71,78 @@ with st.form("load_form"):
 # ------------------------------------------------------------
 # Форма ввода команд и расчёта
 # ------------------------------------------------------------
-with st.form("predict_form"):
-    st.subheader("Команды")
-    
-    manual_mode = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
-    if manual_mode != st.session_state.manual_mode:
-        st.session_state.manual_mode = manual_mode
-        st.rerun()
-    
-    col_home, col_away = st.columns(2)
-    
-    # ---- Домашняя команда ----
-    with col_home:
-        st.markdown("**ДОМАШНЯЯ КОМАНДА**")
-        if manual_mode:
-            home_name = st.text_input("Название", key="home_name")
-            home_sets_v = st.number_input("Sets V", min_value=0, step=1, key="home_sets_v")
-            home_sets_p = st.number_input("Sets P", min_value=0, step=1, key="home_sets_p")
-            home_balls_v = st.number_input("Balls V", min_value=0, step=1, key="home_balls_v")
-            home_balls_p = st.number_input("Balls P", min_value=0, step=1, key="home_balls_p")
-            home_data_ok = bool(home_name)
-        else:
-            if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
-                teams_list = st.session_state.df_teams['Команда'].tolist()
-                home_name = st.selectbox("Название", teams_list, key="home_select")
-                row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home_name].iloc[0]
-                sets_v, sets_p = map(int, row['Сеты'].split(':'))
-                balls_v, balls_p = map(int, row['Мячи'].split(':'))
-                home_sets_v, home_sets_p = sets_v, sets_p
-                home_balls_v, home_balls_p = balls_v, balls_p
-                home_data_ok = True
-                st.caption(f"Сеты: {sets_v}:{sets_p} | Мячи: {balls_v}:{balls_p}")
-            else:
-                st.warning("Сначала загрузите данные или включите ручной ввод.")
-                home_name = ""
-                home_sets_v = home_sets_p = home_balls_v = home_balls_p = 0
-                home_data_ok = False
-    
-    # ---- Гостевая команда ----
-    with col_away:
-        st.markdown("**ГОСТЕВАЯ КОМАНДА**")
-        if manual_mode:
-            away_name = st.text_input("Название", key="away_name")
-            away_sets_v = st.number_input("Sets V", min_value=0, step=1, key="away_sets_v")
-            away_sets_p = st.number_input("Sets P", min_value=0, step=1, key="away_sets_p")
-            away_balls_v = st.number_input("Balls V", min_value=0, step=1, key="away_balls_v")
-            away_balls_p = st.number_input("Balls P", min_value=0, step=1, key="away_balls_p")
-            away_data_ok = bool(away_name)
-        else:
-            if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
-                teams_list = st.session_state.df_teams['Команда'].tolist()
-                away_name = st.selectbox("Название", teams_list, key="away_select")
-                row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away_name].iloc[0]
-                sets_v, sets_p = map(int, row['Сеты'].split(':'))
-                balls_v, balls_p = map(int, row['Мячи'].split(':'))
-                away_sets_v, away_sets_p = sets_v, sets_p
-                away_balls_v, away_balls_p = balls_v, balls_p
-                away_data_ok = True
-                st.caption(f"Сеты: {sets_v}:{sets_p} | Мячи: {balls_v}:{balls_p}")
-            else:
-                st.warning("Сначала загрузите данные или включите ручной ввод.")
-                away_name = ""
-                away_sets_v = away_sets_p = away_balls_v = away_balls_p = 0
-                away_data_ok = False
-    
-    calc_clicked = st.form_submit_button("Рассчитать котировки", use_container_width=True)
+st.subheader("Команды")
 
-# ------------------------------------------------------------
-# Результаты расчёта
-# ------------------------------------------------------------
-if calc_clicked:
+# Чекбокс ручного ввода с обработкой изменения
+manual_mode = st.checkbox("Ввести статистику вручную", value=st.session_state.manual_mode)
+if manual_mode != st.session_state.manual_mode:
+    st.session_state.manual_mode = manual_mode
+    st.rerun()
+
+col_home, col_away = st.columns(2)
+
+# ---- Домашняя команда ----
+with col_home:
+    st.markdown("**ДОМАШНЯЯ КОМАНДА**")
+    if st.session_state.manual_mode:
+        home_name = st.text_input("Название", key="home_name")
+        home_sets_v = st.number_input("Sets V (выигранные сеты)", min_value=0, step=1, key="home_sets_v")
+        home_sets_p = st.number_input("Sets P (проигранные сеты)", min_value=0, step=1, key="home_sets_p")
+        home_balls_v = st.number_input("Balls V (выигранные очки)", min_value=0, step=1, key="home_balls_v")
+        home_balls_p = st.number_input("Balls P (проигранные очки)", min_value=0, step=1, key="home_balls_p")
+        home_data_ok = bool(home_name)
+    else:
+        if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
+            teams_list = st.session_state.df_teams['Команда'].tolist()
+            home_name = st.selectbox("Название", teams_list, key="home_select")
+            row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home_name].iloc[0]
+            sets_v, sets_p = map(int, row['Сеты'].split(':'))
+            balls_v, balls_p = map(int, row['Мячи'].split(':'))
+            home_sets_v, home_sets_p = sets_v, sets_p
+            home_balls_v, home_balls_p = balls_v, balls_p
+            home_data_ok = True
+            st.caption(f"Сеты: {sets_v}:{sets_p} | Мячи: {balls_v}:{balls_p}")
+        else:
+            st.warning("Сначала загрузите данные или включите ручной ввод.")
+            home_name = ""
+            home_sets_v = home_sets_p = home_balls_v = home_balls_p = 0
+            home_data_ok = False
+
+# ---- Гостевая команда ----
+with col_away:
+    st.markdown("**ГОСТЕВАЯ КОМАНДА**")
+    if st.session_state.manual_mode:
+        away_name = st.text_input("Название", key="away_name")
+        away_sets_v = st.number_input("Sets V (выигранные сеты)", min_value=0, step=1, key="away_sets_v")
+        away_sets_p = st.number_input("Sets P (проигранные сеты)", min_value=0, step=1, key="away_sets_p")
+        away_balls_v = st.number_input("Balls V (выигранные очки)", min_value=0, step=1, key="away_balls_v")
+        away_balls_p = st.number_input("Balls P (проигранные очки)", min_value=0, step=1, key="away_balls_p")
+        away_data_ok = bool(away_name)
+    else:
+        if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
+            teams_list = st.session_state.df_teams['Команда'].tolist()
+            away_name = st.selectbox("Название", teams_list, key="away_select")
+            row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away_name].iloc[0]
+            sets_v, sets_p = map(int, row['Сеты'].split(':'))
+            balls_v, balls_p = map(int, row['Мячи'].split(':'))
+            away_sets_v, away_sets_p = sets_v, sets_p
+            away_balls_v, away_balls_p = balls_v, balls_p
+            away_data_ok = True
+            st.caption(f"Сеты: {sets_v}:{sets_p} | Мячи: {balls_v}:{balls_p}")
+        else:
+            st.warning("Сначала загрузите данные или включите ручной ввод.")
+            away_name = ""
+            away_sets_v = away_sets_p = away_balls_v = away_balls_p = 0
+            away_data_ok = False
+
+# Кнопка расчёта прогноза
+if st.button("Рассчитать котировки", use_container_width=True):
     if not home_data_ok or not away_data_ok:
         st.error("Заполните данные для обеих команд.")
     elif home_name == away_name:
         st.error("Выберите разные команды.")
     else:
-        # Прогноз по сетам: определяем фаворита (независимо от того, хозяин или гость)
+        # ========== ПРОГНОЗ ПО СЕТАМ (на фаворита) ==========
         st.subheader("📈 Прогноз по сетам")
         home_winrate = home_sets_v / (home_sets_v + home_sets_p) if (home_sets_v + home_sets_p) > 0 else 0.5
         away_winrate = away_sets_v / (away_sets_v + away_sets_p) if (away_sets_v + away_sets_p) > 0 else 0.5
@@ -154,25 +150,23 @@ if calc_clicked:
         if home_winrate > away_winrate:
             favorite = home_name
             fav_winrate = home_winrate
-            underdog = away_name
         else:
             favorite = away_name
             fav_winrate = away_winrate
-            underdog = home_name
         
         margin = 0.05
         odds_fav = (1 - margin) / fav_winrate if fav_winrate > 0 else 0
         
         st.write(f"**Фаворит:** {favorite}")
         st.write(f"**Вероятность победы фаворита:** {fav_winrate:.1%}")
-        st.write(f"**Коэффициент на победу {favorite} (с маржой 5%):** {odds_fav:.2f}")
-        st.caption("Прогноз основан на проценте выигранных сетов. Коэффициент рассчитан с заложенной маржой букмекера 5%.")
-
-        # Прогноз по очкам (фора) – относительно хозяев
+        st.write(f"**Коэффициент на победу фаворита (с маржой 5%):** {odds_fav:.2f}")
+        st.caption("Основано на проценте выигранных сетов.")
+        
+        # ========== ПРОГНОЗ ПО ОЧКАМ (фора на хозяев) ==========
         st.subheader("⚖️ Прогноз по очкам (фора)")
         total_matches = (home_sets_v + home_sets_p) // 3 if (home_sets_v + home_sets_p) > 0 else 30
-        home_avg_diff = (home_balls_v - home_balls_p) / total_matches if total_matches > 0 else 0
-        away_avg_diff = (away_balls_v - away_balls_p) / total_matches if total_matches > 0 else 0
+        home_avg_diff = (home_balls_v - home_balls_p) / total_matches
+        away_avg_diff = (away_balls_v - away_balls_p) / total_matches
         expected_diff = home_avg_diff - away_avg_diff
         handicap = round(expected_diff, 1)
         if handicap > 0:
@@ -181,11 +175,12 @@ if calc_clicked:
             st.success(f"**Фора на матч:** {handicap} (в пользу гостей)")
         else:
             st.info("Фора близка к нулю – команды примерно равны")
-        st.caption("Фора рассчитана как средняя разница очков за матч (хозяева − гости).")
-
-        # ----- Личные встречи (ручной ввод) -----
+        st.caption("Средняя разница очков за матч (хозяева − гости).")
+        
+        # ========== ЛИЧНЫЕ ВСТРЕЧИ ==========
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
+        # формируем список команд для выбора в истории
         all_teams = []
         if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
             all_teams = st.session_state.df_teams['Команда'].tolist()
@@ -214,6 +209,7 @@ if calc_clicked:
                 st.success("Добавлено")
                 st.rerun()
         
+        # Отображение истории для текущей пары
         key_pair = (home_name, away_name)
         reverse_key = (away_name, home_name)
         h2h_data = []
