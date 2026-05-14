@@ -6,30 +6,72 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ------------------------------------------------------------
-# Универсальный парсер таблиц (CSV, Excel, текст)
+# Специализированный парсер для итальянского CSV (legavolley)
 # ------------------------------------------------------------
+def parse_italian_csv(content: str) -> pd.DataFrame:
+    """Парсит CSV с итальянской таблицей формата:
+    1 Abba Pineto,,58,26,20,6,10,6,4,2,2,2,66,32,2.273,2.089,...
+    """
+    lines = content.splitlines()
+    data = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Убираем кавычки
+        line = line.replace('"', '')
+        # Разделяем по запятой
+        parts = line.split(',')
+        if len(parts) < 15:
+            continue
+        # Первая часть должна начинаться с цифры (номер команды)
+        if not re.match(r'^\d+', parts[0]):
+            continue
+        # Название команды (вторая колонка)
+        team = parts[1].strip()
+        if not team:
+            continue
+        # Сеты: 12-я и 13-я колонки (индексы 11 и 12)
+        try:
+            sets_w = int(parts[11])
+            sets_l = int(parts[12])
+            # Очки: 14-я и 15-я колонки (индексы 13 и 14) – с точкой как разделитель тысяч
+            pts_w = int(float(parts[13].replace('.', '')))
+            pts_l = int(float(parts[14].replace('.', '')))
+            data.append({
+                'Команда': team,
+                'Сеты': f"{sets_w}:{sets_l}",
+                'Мячи': f"{pts_w}:{pts_l}"
+            })
+        except (ValueError, IndexError):
+            continue
+    if data:
+        return pd.DataFrame(data)
+    return None
+
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
         content = data_source.getvalue().decode('utf-8')
+        df = parse_italian_csv(content)
+        if df is not None:
+            return df
+        # fallback: общий парсер по строкам
         lines = content.splitlines()
         data = []
-        number_pattern = r'[\d]+(?:[.,]\d+)?'  # числа: целые или с точкой/запятой
+        number_pattern = r'[\d]+(?:[.,]\d+)?'
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            # Ищем строки, начинающиеся с цифры и пробела (номера команд)
             if re.match(r'^\d+\s+', line):
                 numbers = re.findall(number_pattern, line)
                 if len(numbers) < 4:
                     continue
-                # Сеты (первые два числа)
                 try:
                     sets_won = int(float(numbers[0].replace(',', '.')))
                     sets_lost = int(float(numbers[1].replace(',', '.')))
                 except:
                     continue
-                # Очки (убираем точки/запятые как разделители тысяч)
                 pts_won_str = numbers[2].replace('.', '').replace(',', '')
                 pts_lost_str = numbers[3].replace('.', '').replace(',', '')
                 try:
@@ -37,29 +79,23 @@ def parse_table_to_df(data_source, file_type=None):
                     pts_lost = int(pts_lost_str)
                 except:
                     continue
-                # Название команды: всё между номером и первым числом
                 without_number = re.sub(r'^\d+\s+', '', line)
                 first_num_match = re.search(number_pattern, without_number)
                 if first_num_match:
                     team = without_number[:first_num_match.start()].strip()
                 else:
                     team = without_number.strip()
-                # Удаляем возможные запятые в конце названия
                 team = re.sub(r'[,;]\s*$', '', team).strip()
                 if team:
-                    data.append({
-                        'Команда': team,
-                        'Сеты': f"{sets_won}:{sets_lost}",
-                        'Мячи': f"{pts_won}:{pts_lost}"
-                    })
+                    data.append({'Команда': team, 'Сеты': f"{sets_won}:{sets_lost}", 'Мячи': f"{pts_won}:{pts_lost}"})
         if data:
             return pd.DataFrame(data)
-        # fallback: стандартный pandas
+        # последняя попытка через pandas
         try:
-            df = pd.read_csv(data_source, sep=None, engine='python', encoding='utf-8')
-            # Поиск колонок по ключевым словам (как раньше)
-            team_col, sets_won_col, sets_lost_col, pts_won_col, pts_lost_col = None, None, None, None, None
-            for col in df.columns:
+            df_pd = pd.read_csv(data_source, sep=None, engine='python', encoding='utf-8')
+            # поиск колонок по ключевым словам
+            team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+            for col in df_pd.columns:
                 col_low = str(col).lower()
                 if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
                     team_col = col
@@ -73,7 +109,7 @@ def parse_table_to_df(data_source, file_type=None):
                     pts_lost_col = col
             if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
                 rows = []
-                for _, row in df.iterrows():
+                for _, row in df_pd.iterrows():
                     team = str(row[team_col]).strip()
                     if not team or team == 'nan':
                         continue
@@ -87,41 +123,44 @@ def parse_table_to_df(data_source, file_type=None):
                         continue
                 if rows:
                     return pd.DataFrame(rows)
-        except Exception as e:
+        except:
             pass
         return None
     elif file_type == 'xlsx':
-        df_raw = pd.read_excel(data_source)
-        # Аналогичный поиск колонок (как в предыдущей версии)
-        team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
-        for col in df_raw.columns:
-            col_low = str(col).lower()
-            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
-                team_col = col
-            if 'vinti' in col_low and 'set' in col_low:
-                sets_won_col = col
-            if 'persi' in col_low and 'set' in col_low:
-                sets_lost_col = col
-            if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
-                pts_won_col = col
-            if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
-                pts_lost_col = col
-        if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
-            rows = []
-            for _, row in df_raw.iterrows():
-                team = str(row[team_col]).strip()
-                if not team or team == 'nan':
-                    continue
-                try:
-                    sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
-                    sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
-                    pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
-                    pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
-                except:
-                    continue
-            if rows:
-                return pd.DataFrame(rows)
+        # Обработка Excel (оставляем как было)
+        try:
+            df_raw = pd.read_excel(data_source)
+            team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+            for col in df_raw.columns:
+                col_low = str(col).lower()
+                if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+                    team_col = col
+                if 'vinti' in col_low and 'set' in col_low:
+                    sets_won_col = col
+                if 'persi' in col_low and 'set' in col_low:
+                    sets_lost_col = col
+                if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
+                    pts_won_col = col
+                if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
+                    pts_lost_col = col
+            if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
+                rows = []
+                for _, row in df_raw.iterrows():
+                    team = str(row[team_col]).strip()
+                    if not team or team == 'nan':
+                        continue
+                    try:
+                        sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
+                        sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
+                        pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
+                        pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
+                        rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}"})
+                    except:
+                        continue
+                if rows:
+                    return pd.DataFrame(rows)
+        except:
+            pass
         return None
     else:  # text
         return parse_text_to_df(data_source)
@@ -168,7 +207,7 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
     return None
 
 # ------------------------------------------------------------
-# Функция вероятности выиграть матч (до 3 побед из 5)
+# Функция вероятности выиграть матч (best of 5)
 # ------------------------------------------------------------
 def prob_win_match(p: float) -> float:
     if p <= 0:
@@ -179,7 +218,7 @@ def prob_win_match(p: float) -> float:
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 # ------------------------------------------------------------
-# Парсеры для автоматических URL
+# Автоматические парсеры (volley.ru, dataproject.com)
 # ------------------------------------------------------------
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
@@ -199,7 +238,7 @@ def load_teams_from_url(url, combine_phases):
     return None, error or "Не удалось загрузить данные"
 
 # ------------------------------------------------------------
-# Инициализация Streamlit
+# Интерфейс Streamlit
 # ------------------------------------------------------------
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
@@ -216,7 +255,7 @@ if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 
 # ------------------------------------------------------------
-# Боковая панель: менеджер пользовательских таблиц
+# Боковая панель: менеджер таблиц
 # ------------------------------------------------------------
 with st.sidebar:
     st.header("📁 Мои таблицы")
@@ -301,7 +340,7 @@ with st.sidebar:
         st.info("Нет сохранённых таблиц. Создайте новую.")
 
 # ------------------------------------------------------------
-# Основная область: выбор источника данных
+# Основная область: выбор источника
 # ------------------------------------------------------------
 st.subheader("Источник данных")
 src = st.radio(
@@ -335,7 +374,7 @@ if st.session_state.active_source == "auto":
                     st.error(err)
 
 # ------------------------------------------------------------
-# 2. Ручной ввод одной пары
+# 2. Ручной ввод пары
 # ------------------------------------------------------------
 elif st.session_state.active_source == "manual_pair":
     st.info("Введите данные для двух команд")
@@ -406,7 +445,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # Прогноз по сетам
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -426,7 +464,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче рассчитана через биномиальное распределение (best of 5) и нормализована.")
 
-                # Прогноз по очкам (фора)
                 total_matches_h = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 30
                 total_matches_a = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 30
                 total_matches = max(total_matches_h, total_matches_a, 1)
@@ -442,7 +479,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.info("Фора близка к нулю")
                 st.caption("Средняя разница очков за матч (оценка).")
 
-                # Личные встречи (ручной ввод) – без изменений
                 st.divider()
                 st.subheader("📋 Личные встречи (ручной ввод)")
                 all_teams = teams if len(teams) > 1 else [home, away]
