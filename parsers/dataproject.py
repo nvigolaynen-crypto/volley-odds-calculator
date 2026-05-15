@@ -14,15 +14,12 @@ class DataProjectParser(BaseParser):
             return None, f"Ошибка загрузки: {e}"
 
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # Ищем таблицу с классом rgMasterTable (основная таблица результатов)
         table = soup.find('table', class_='rgMasterTable')
         if not table:
             return None, "Таблица не найдена"
 
-        # Ищем строки с данными (обычно с классом, содержащим "RG_Standing_Main_AltBackColor")
         rows = table.find_all('tr', class_=re.compile(r'RG_Standing_Main_AltBackColor'))
         if not rows:
-            # fallback: все строки, содержащие span с id="TeamName"
             rows = table.find_all('tr')
             rows = [row for row in rows if row.find('span', id=re.compile(r'TeamName'))]
 
@@ -34,7 +31,6 @@ class DataProjectParser(BaseParser):
         matches_list = []
 
         for row in rows:
-            # Название команды
             team_span = row.find('span', id=re.compile(r'TeamName'))
             if not team_span:
                 continue
@@ -43,7 +39,6 @@ class DataProjectParser(BaseParser):
                 continue
             teams.append(team)
 
-            # Количество матчей
             matches_span = row.find('span', id=re.compile(r'MatchesPlayed'))
             if matches_span:
                 matches_text = matches_span.get_text(strip=True)
@@ -52,7 +47,6 @@ class DataProjectParser(BaseParser):
                 matches = None
             matches_list.append(matches)
 
-            # Сеты
             sets_won_span = row.find('span', id=re.compile(r'SetsWon'))
             sets_lost_span = row.find('span', id=re.compile(r'SetsLost'))
             sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
@@ -60,7 +54,6 @@ class DataProjectParser(BaseParser):
             sets_won_list.append(sets_won)
             sets_lost_list.append(sets_lost)
 
-            # Очки (забитые и пропущенные)
             points_won_span = row.find('span', id=re.compile(r'PuntiFatti'))
             points_lost_span = row.find('span', id=re.compile(r'PuntiSubiti'))
             points_won = int(points_won_span.get_text(strip=True)) if points_won_span else 0
