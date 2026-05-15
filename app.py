@@ -6,17 +6,572 @@ import json
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
-# ------------------------------------------------------------
-# Функции корректировки форы (мужчины/женщины, домашнее/нейтральное, малые выборки)
-# ------------------------------------------------------------
-# (здесь должны быть все ваши функции adjust_handicap_* из предыдущих версий,
-#  они не изменились. Для краткости я их опускаю, но в финальном файле они должны быть.
-#  Пожалуйста, вставьте их из вашего рабочего кода.)
-# ------------------------------------------------------------
+# ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
 
-# ------------------------------------------------------------
-# Определение пола по URL
-# ------------------------------------------------------------
+def adjust_handicap_men_home(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -34.5:
+        return handicap * 1.38
+    elif handicap <= -17.5:
+        return handicap * 1.48
+    elif handicap <= -12.5:
+        return handicap * 1.7
+    elif handicap <= -9.5:
+        return handicap * 1.9
+    elif handicap <= -7.5:
+        return handicap * 2.0
+    elif handicap <= -6.5:
+        return handicap * 2.2
+    elif handicap <= -5.5:
+        return handicap * 1.94
+    elif handicap <= -4.5:
+        return handicap * 1.9
+    elif handicap <= -3.5:
+        return handicap * 1.8
+    elif handicap <= -2.75:
+        return handicap * 2.1
+    elif handicap <= -2.25:
+        return handicap * 1.75
+    elif handicap <= -1.75:
+        return handicap * 1.0
+    elif handicap <= -1.25:
+        return handicap * 0.5
+    elif handicap <= -0.75:
+        return handicap * 0.0
+    elif handicap < 1.25:
+        return handicap + 2.5
+    elif handicap < 1.75:
+        return handicap * 3.5
+    elif handicap < 2.75:
+        return handicap * 3.7
+    elif handicap < 3.5:
+        return handicap * 3.6
+    elif handicap < 4.5:
+        return handicap * 3.2
+    elif handicap < 6.5:
+        return handicap * 2.7
+    elif handicap < 7.5:
+        return handicap * 2.5
+    elif handicap < 9.5:
+        return handicap * 2.4
+    elif handicap < 10.5:
+        return handicap * 2.3
+    elif handicap < 14.5:
+        return handicap * 2.2
+    elif handicap < 17.5:
+        return handicap * 2.0
+    elif handicap < 21.5:
+        return handicap * 1.68
+    elif handicap < 34.5:
+        return handicap * 1.65
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_men_neutral(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -34.5:
+        return handicap * 1.38
+    elif handicap <= -21.5:
+        return handicap * 1.57
+    elif handicap <= -17.5:
+        return handicap * 1.58
+    elif handicap <= -14.5:
+        return handicap * 1.85
+    elif handicap <= -12.5:
+        return handicap * 1.95
+    elif handicap <= -10.5:
+        return handicap * 2.05
+    elif handicap <= -9.5:
+        return handicap * 2.1
+    elif handicap <= -7.5:
+        return handicap * 2.2
+    elif handicap <= -4.5:
+        return handicap * 2.3
+    elif handicap <= -3.5:
+        return handicap * 2.5
+    elif handicap <= -2.75:
+        return handicap * 2.85
+    elif handicap <= -2.25:
+        return handicap * 2.73
+    elif handicap <= -1.85:
+        return handicap * 2.35
+    elif handicap <= -1.65:
+        return handicap * 1.8
+    elif handicap <= -1.25:
+        return handicap * 1.48
+    elif handicap < 1.25:
+        return handicap * 1.0
+    elif handicap < 1.6:
+        return handicap * 1.48
+    elif handicap < 1.85:
+        return handicap * 1.8
+    elif handicap < 2.25:
+        return handicap * 2.35
+    elif handicap < 2.75:
+        return handicap * 2.73
+    elif handicap < 3.5:
+        return handicap * 2.85
+    elif handicap < 4.5:
+        return handicap * 2.5
+    elif handicap < 7.5:
+        return handicap * 2.3
+    elif handicap < 9.5:
+        return handicap * 2.2
+    elif handicap < 10.5:
+        return handicap * 2.1
+    elif handicap < 12.5:
+        return handicap * 2.05
+    elif handicap < 14.5:
+        return handicap * 1.95
+    elif handicap < 17.5:
+        return handicap * 1.85
+    elif handicap < 21.5:
+        return handicap * 1.58
+    elif handicap < 34.5:
+        return handicap * 1.57
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_women_home(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -38.5:
+        return handicap * 1.38
+    elif handicap <= -27.5:
+        return handicap * 1.5
+    elif handicap <= -25.5:
+        return handicap * 1.54
+    elif handicap <= -17.5:
+        return handicap * 1.58
+    elif handicap <= -16.5:
+        return handicap * 1.75
+    elif handicap <= -14.5:
+        return handicap * 1.8
+    elif handicap <= -10.5:
+        return handicap * 2.0
+    elif handicap <= -4.5:
+        return handicap * 2.2
+    elif handicap <= -3.75:
+        return handicap * 2.1
+    elif handicap <= -3.25:
+        return handicap * 1.75
+    elif handicap <= -2.75:
+        return handicap * 1.5
+    elif handicap <= -2.25:
+        return handicap * 1.0
+    elif handicap <= -1.75:
+        return handicap * 0.5
+    elif handicap <= -1.5:
+        return handicap * 0.0
+    elif handicap <= -1.25:
+        return handicap * -0.6
+    elif handicap <= -0.75:
+        return handicap * -3
+    elif handicap < 0:
+        return handicap + 3.5
+    elif handicap == 0:
+        return 3.5
+    elif handicap < 0.75:
+        return handicap + 3.5
+    elif handicap < 1.25:
+        return handicap + 3.5
+    elif handicap < 1.75:
+        return handicap * 3.5
+    elif handicap < 2.25:
+        return handicap * 4.0
+    elif handicap < 2.75:
+        return handicap * 4.8
+    elif handicap < 3.5:
+        return handicap * 4.0
+    elif handicap < 4.5:
+        return handicap * 3.3
+    elif handicap < 5.5:
+        return handicap * 2.5
+    elif handicap < 6.5:
+        return handicap * 2.5
+    elif handicap < 7.5:
+        return handicap * 2.5
+    elif handicap < 10.5:
+        return handicap * 2.4
+    elif handicap < 11.5:
+        return handicap * 2.3
+    elif handicap < 12.5:
+        return handicap * 2.1
+    elif handicap < 14.5:
+        return handicap * 1.9
+    elif handicap < 23.5:
+        return handicap * 1.8
+    elif handicap < 29.5:
+        return handicap * 1.62
+    elif handicap < 38.5:
+        return handicap * 1.5
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_women_neutral(handicap: float) -> float:
+    if handicap <= -43:
+        return handicap * 1.3
+    elif handicap <= -38.5:
+        return handicap * 1.38
+    elif handicap <= -29.5:
+        return handicap * 1.5
+    elif handicap <= -27.5:
+        return handicap * 1.56
+    elif handicap <= -25.5:
+        return handicap * 1.58
+    elif handicap <= -23.5:
+        return handicap * 1.6
+    elif handicap <= -17.5:
+        return handicap * 1.69
+    elif handicap <= -14.5:
+        return handicap * 1.8
+    elif handicap <= -12.5:
+        return handicap * 1.95
+    elif handicap <= -11.5:
+        return handicap * 2.05
+    elif handicap <= -10.5:
+        return handicap * 2.15
+    elif handicap <= -6.5:
+        return handicap * 2.3
+    elif handicap <= -5.5:
+        return handicap * 2.4
+    elif handicap <= -4.5:
+        return handicap * 2.5
+    elif handicap <= -3.5:
+        return handicap * 2.8
+    elif handicap <= -2.25:
+        return handicap * 2.9
+    elif handicap <= -1.85:
+        return handicap * 2.25
+    elif handicap <= -1.65:
+        return handicap * 1.8
+    elif handicap <= -1.25:
+        return handicap * 1.48
+    elif handicap < 1.25:
+        return handicap * 1.0
+    elif handicap < 1.6:
+        return handicap * 1.48
+    elif handicap < 1.85:
+        return handicap * 1.8
+    elif handicap < 2.25:
+        return handicap * 2.25
+    elif handicap < 3.5:
+        return handicap * 2.9
+    elif handicap < 4.5:
+        return handicap * 2.8
+    elif handicap < 5.5:
+        return handicap * 2.5
+    elif handicap < 6.5:
+        return handicap * 2.4
+    elif handicap < 10.5:
+        return handicap * 2.3
+    elif handicap < 11.5:
+        return handicap * 2.15
+    elif handicap < 12.5:
+        return handicap * 2.05
+    elif handicap < 14.5:
+        return handicap * 1.95
+    elif handicap < 17.5:
+        return handicap * 1.8
+    elif handicap < 23.5:
+        return handicap * 1.69
+    elif handicap < 25.5:
+        return handicap * 1.6
+    elif handicap < 27.5:
+        return handicap * 1.58
+    elif handicap < 29.5:
+        return handicap * 1.56
+    elif handicap < 38.5:
+        return handicap * 1.5
+    elif handicap < 43:
+        return handicap * 1.38
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_men_2(handicap: float) -> float:
+    if handicap <= -33.5:
+        return handicap * 1.33
+    elif handicap <= -19.5:
+        return handicap * 1.42
+    elif handicap <= -14.5:
+        return handicap * 1.25
+    elif handicap <= -12.5:
+        return handicap * 1.5
+    elif handicap <= -10.5:
+        return handicap * 1.68
+    elif handicap <= -9.5:
+        return handicap * 1.45
+    elif handicap <= -8.5:
+        return handicap * 1.4
+    elif handicap <= -6.5:
+        return handicap * 1.56
+    elif handicap <= -5.5:
+        return handicap * 1.6
+    elif handicap <= -4.5:
+        return handicap * 2.1
+    elif handicap <= -3.5:
+        return handicap * 2.4
+    elif handicap <= -2.75:
+        return handicap * 2.5
+    elif handicap <= -2.25:
+        return handicap * 1.9
+    elif handicap <= -1.5:
+        return handicap * 1.44
+    elif handicap <= -0.5:
+        return handicap * 2.0
+    elif handicap < 0:
+        return handicap - 0.75
+    elif handicap == 0:
+        return 0.0
+    elif handicap < 0.5:
+        return handicap + 0.75
+    elif handicap < 1.5:
+        return handicap * 2.0
+    elif handicap < 2.25:
+        return handicap * 1.44
+    elif handicap < 2.75:
+        return handicap * 1.9
+    elif handicap < 3.5:
+        return handicap * 2.5
+    elif handicap < 4.5:
+        return handicap * 2.4
+    elif handicap < 5.5:
+        return handicap * 2.1
+    elif handicap < 6.5:
+        return handicap * 1.6
+    elif handicap < 8.5:
+        return handicap * 1.56
+    elif handicap < 9.5:
+        return handicap * 1.4
+    elif handicap < 10.5:
+        return handicap * 1.45
+    elif handicap < 12.5:
+        return handicap * 1.68
+    elif handicap < 14.5:
+        return handicap * 1.5
+    elif handicap < 19.5:
+        return handicap * 1.25
+    elif handicap < 33.5:
+        return handicap * 1.42
+    else:
+        return handicap * 1.33
+
+def adjust_handicap_women_2(handicap: float) -> float:
+    if handicap <= -26.5:
+        return handicap * 1.33
+    elif handicap <= -19.5:
+        return handicap * 1.42
+    elif handicap <= -17.5:
+        return handicap * 1.65
+    elif handicap <= -14.5:
+        return handicap * 1.4
+    elif handicap <= -13.5:
+        return handicap * 1.5
+    elif handicap <= -12.5:
+        return handicap * 1.7
+    elif handicap <= -11.5:
+        return handicap * 1.73
+    elif handicap <= -9.5:
+        return handicap * 1.9
+    elif handicap <= -8.5:
+        return handicap * 1.83
+    elif handicap <= -5.5:
+        return handicap * 1.83
+    elif handicap <= -4.5:
+        return handicap * 1.87
+    elif handicap <= -3.5:
+        return handicap * 2.8
+    elif handicap <= -2.5:
+        return handicap * 3.0
+    elif handicap <= -1.75:
+        return handicap * 4.2
+    elif handicap < -1.25:
+        return handicap * 3.75
+    elif handicap < 0:
+        return handicap - 0.0
+    elif handicap == 0:
+        return 0.0
+    elif handicap <= 1.25:
+        return handicap + 0.0
+    elif handicap < 1.75:
+        return handicap * 3.75
+    elif handicap <= 2.5:
+        return handicap * 4.2
+    elif handicap < 3.5:
+        return handicap * 3.0
+    elif handicap < 4.5:
+        return handicap * 2.8
+    elif handicap < 5.5:
+        return handicap * 1.87
+    elif handicap < 8.5:
+        return handicap * 1.83
+    elif handicap < 9.5:
+        return handicap * 1.83
+    elif handicap < 11.5:
+        return handicap * 1.9
+    elif handicap < 12.5:
+        return handicap * 1.73
+    elif handicap < 13.5:
+        return handicap * 1.7
+    elif handicap < 14.5:
+        return handicap * 1.5
+    elif handicap < 17.5:
+        return handicap * 1.4
+    elif handicap < 19.5:
+        return handicap * 1.65
+    elif handicap < 26.5:
+        return handicap * 1.42
+    else:
+        return handicap * 1.33
+
+def adjust_handicap_men_3(handicap: float) -> float:
+    if handicap <= -20.5:
+        return handicap * 1.3
+    elif handicap <= -18.5:
+        return handicap * 1.6
+    elif handicap <= -9.5:
+        return handicap * 1.7
+    elif handicap <= -7.5:
+        return handicap * 1.5
+    elif handicap <= -6.5:
+        return handicap * 2.0
+    elif handicap <= -5.5:
+        return handicap * 2.55
+    elif handicap <= -4.5:
+        return handicap * 2.4
+    elif handicap <= -3.75:
+        return handicap * 2.2
+    elif handicap <= -3.25:
+        return handicap * 1.85
+    elif handicap <= -1.5:
+        return handicap * 1.5
+    elif handicap < 0:
+        return handicap - 5.0
+    elif handicap == 0:
+        return 0.0
+    elif handicap < 1.5:
+        return handicap + 5.0
+    elif handicap < 3.25:
+        return handicap * 1.5
+    elif handicap <= 3.75:
+        return handicap * 1.85
+    elif handicap < 4.5:
+        return handicap * 2.2
+    elif handicap < 5.5:
+        return handicap * 2.4
+    elif handicap < 6.5:
+        return handicap * 2.55
+    elif handicap < 7.5:
+        return handicap * 2.0
+    elif handicap < 9.5:
+        return handicap * 1.5
+    elif handicap < 18.5:
+        return handicap * 1.7
+    elif handicap < 20.5:
+        return handicap * 1.6
+    else:
+        return handicap * 1.3
+
+def adjust_handicap_women_3(handicap: float) -> float:
+    if handicap <= -28.5:
+        return handicap * 1.4
+    elif handicap <= -14.5:
+        return handicap * 1.55
+    elif handicap <= -13.5:
+        return handicap * 1.65
+    elif handicap <= -12.5:
+        return handicap * 1.75
+    elif handicap <= -11.5:
+        return handicap * 1.85
+    elif handicap <= -10.5:
+        return handicap * 2.1
+    elif handicap <= -9.5:
+        return handicap * 2.6
+    elif handicap <= -8.5:
+        return handicap * 2.6
+    elif handicap <= -7.5:
+        return handicap * 1.42
+    elif handicap <= -6.5:
+        return handicap * 1.42
+    elif handicap <= -5.5:
+        return handicap * 1.42
+    elif handicap <= -4.5:
+        return handicap * 1.42
+    elif handicap <= -3.5:
+        return handicap * 1.6
+    elif handicap <= -2.75:
+        return handicap * 0.63
+    elif handicap <= -2.25:
+        return handicap - 2.5
+    elif handicap < 0:
+        return handicap - 5.0
+    elif handicap == 0:
+        return 0.0
+    elif handicap < 2.25:
+        return handicap + 5.0
+    elif handicap < 2.75:
+        return handicap + 2.5
+    elif handicap <= 3.5:
+        return handicap * 1.63
+    elif handicap < 4.5:
+        return handicap * 1.6
+    elif handicap < 5.5:
+        return handicap * 1.42
+    elif handicap < 6.5:
+        return handicap * 1.42
+    elif handicap < 7.5:
+        return handicap * 1.42
+    elif handicap < 8.5:
+        return handicap * 1.42
+    elif handicap < 9.5:
+        return handicap * 2.6
+    elif handicap < 10.5:
+        return handicap * 2.6
+    elif handicap < 11.5:
+        return handicap * 2.1
+    elif handicap < 12.5:
+        return handicap * 1.85
+    elif handicap < 13.5:
+        return handicap * 1.75
+    elif handicap < 14.5:
+        return handicap * 1.65
+    elif handicap < 28.5:
+        return handicap * 1.55
+    else:
+        return handicap * 1.4
+
+# ==================== ОБЩИЕ ФУНКЦИИ ====================
+
+def prob_win_match(p: float) -> float:
+    if p <= 0:
+        return 0.0
+    if p >= 1:
+        return 1.0
+    q = 1 - p
+    return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
+
+def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
+                           a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
+    if h_matches is None or h_matches <= 0:
+        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
+    if a_matches is None or a_matches <= 0:
+        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
+    home_avg_scored = h_pts_w / h_matches
+    home_avg_conceded = h_pts_l / h_matches
+    away_avg_scored = a_pts_w / a_matches
+    away_avg_conceded = a_pts_l / a_matches
+    expected_home = (home_avg_scored + away_avg_conceded) / 2
+    expected_away = (away_avg_scored + home_avg_conceded) / 2
+    return expected_home - expected_away
+
 def detect_gender_by_url(url: str) -> str:
     url_lower = url.lower()
     if any(x in url_lower for x in ['femminile', 'women', 'kadinlar', 'liga kobiet', 'womens', 'legavolleyfemminile']):
@@ -25,9 +580,8 @@ def detect_gender_by_url(url: str) -> str:
         return "Мужчины"
     return None
 
-# ------------------------------------------------------------
-# Парсер таблиц (CSV, Excel, текст) с поддержкой колонки "Матчи"
-# ------------------------------------------------------------
+# ==================== ПАРСЕРЫ ТАБЛИЦ ====================
+
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
         content = data_source.getvalue().decode('utf-8')
@@ -206,37 +760,8 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         return pd.DataFrame(data)
     return None
 
-# ------------------------------------------------------------
-# Функция вероятности выиграть матч (до 3 побед из 5)
-# ------------------------------------------------------------
-def prob_win_match(p: float) -> float:
-    if p <= 0:
-        return 0.0
-    if p >= 1:
-        return 1.0
-    q = 1 - p
-    return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
+# ==================== ПАРСЕРЫ URL ====================
 
-# ------------------------------------------------------------
-# Расчёт сырой форы по очкам
-# ------------------------------------------------------------
-def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
-                           a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
-    if h_matches is None or h_matches <= 0:
-        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
-    if a_matches is None or a_matches <= 0:
-        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
-    home_avg_scored = h_pts_w / h_matches
-    home_avg_conceded = h_pts_l / h_matches
-    away_avg_scored = a_pts_w / a_matches
-    away_avg_conceded = a_pts_l / a_matches
-    expected_home = (home_avg_scored + away_avg_conceded) / 2
-    expected_away = (away_avg_scored + home_avg_conceded) / 2
-    return expected_home - expected_away
-
-# ------------------------------------------------------------
-# Парсеры для автоматических URL
-# ------------------------------------------------------------
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
         return RussiaVolleyRuParser()
@@ -254,9 +779,8 @@ def load_teams_from_url(url, combine_phases):
         return df, None
     return None, error or "Не удалось загрузить данные"
 
-# ------------------------------------------------------------
-# Инициализация Streamlit
-# ------------------------------------------------------------
+# ==================== ИНИЦИАЛИЗАЦИЯ STREAMLIT ====================
+
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
@@ -273,9 +797,7 @@ if 'selected_user_table' not in st.session_state:
 if 'detected_gender' not in st.session_state:
     st.session_state.detected_gender = None
 
-# ------------------------------------------------------------
-# Боковая панель: менеджер таблиц + экспорт/импорт
-# ------------------------------------------------------------
+# ==================== БОКОВАЯ ПАНЕЛЬ (ТАБЛИЦЫ) ====================
 with st.sidebar:
     st.header("📁 Мои таблицы")
     col_exp, col_imp, col_clear = st.columns(3)
@@ -306,8 +828,7 @@ with st.sidebar:
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
             st.markdown("Формат: `Название;Сеты;Мячи` или `Название;Сеты;Мячи;Матчи`")
-            text_data = st.text_area("Введите данные", height=200,
-                                     help="Пример:\nЗенит-Казань;87:24;2655:2259;30\nДинамо-Москва;79:26;2540:2220;30")
+            text_data = st.text_area("Введите данные", height=200, help="Пример:\nЗенит-Казань;87:24;2655:2259;30")
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
@@ -353,7 +874,6 @@ with st.sidebar:
             upd_name = st.selectbox("Выберите таблицу", list(st.session_state.user_tables.keys()))
             upd_method = st.radio("Способ", ["Текстовый ввод","CSV/Excel"])
             if upd_method == "Текстовый ввод":
-                st.markdown("Формат: `Название;Сеты;Мячи;Матчи` (матчи необязательны)")
                 upd_text = st.text_area("Новые данные", height=150)
                 if st.button("Обновить"):
                     df_upd = parse_text_to_df(upd_text)
@@ -384,9 +904,7 @@ with st.sidebar:
     else:
         st.info("Нет сохранённых таблиц. Создайте новую или импортируйте JSON.")
 
-# ------------------------------------------------------------
-# Основная область: выбор источника данных
-# ------------------------------------------------------------
+# ==================== ОСНОВНАЯ ОБЛАСТЬ ====================
 st.subheader("Источник данных")
 src = st.radio(
     "Выберите источник",
@@ -400,9 +918,7 @@ elif src == "Ручной ввод (только одна пара)":
 else:
     st.session_state.active_source = "user_table"
 
-# ------------------------------------------------------------
-# 1. Автоматический парсинг
-# ------------------------------------------------------------
+# -------------------- 1. АВТОМАТИЧЕСКИЙ ПАРСИНГ --------------------
 if st.session_state.active_source == "auto":
     with st.form("auto_form"):
         url = st.text_input("URL", placeholder="https://volley.ru/... или dataproject.com...")
@@ -437,9 +953,7 @@ if st.session_state.active_source == "auto":
                     st.session_state.df_teams = df
                     st.success(f"Для всех команд установлено количество матчей: {matches_value}")
 
-# ------------------------------------------------------------
-# 2. Ручной ввод одной пары
-# ------------------------------------------------------------
+# -------------------- 2. РУЧНОЙ ВВОД ПАРЫ --------------------
 elif st.session_state.active_source == "manual_pair":
     st.info("Введите данные для двух команд")
     col1, col2 = st.columns(2)
@@ -472,9 +986,7 @@ elif st.session_state.active_source == "manual_pair":
                 st.session_state.detected_gender = "Мужчины"
             st.success("Сохранено")
 
-# ------------------------------------------------------------
-# 3. Загруженная таблица
-# ------------------------------------------------------------
+# -------------------- 3. ЗАГРУЖЕННАЯ ТАБЛИЦА --------------------
 elif st.session_state.active_source == "user_table":
     if st.session_state.user_tables:
         selected = st.selectbox("Выберите таблицу", list(st.session_state.user_tables.keys()))
@@ -487,9 +999,7 @@ elif st.session_state.active_source == "user_table":
     else:
         st.warning("Нет таблиц. Создайте или импортируйте.")
 
-# ------------------------------------------------------------
-# Прогноз
-# ------------------------------------------------------------
+# ==================== ПРОГНОЗ ====================
 if st.session_state.df_teams is not None and not st.session_state.df_teams.empty:
     if 'Команда' not in st.session_state.df_teams.columns:
         st.error("Некорректный формат: отсутствует колонка 'Команда'")
@@ -525,7 +1035,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             matches_info = f" | Матчей: {a_matches}" if a_matches else ""
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}{matches_info}")
 
-        # ----- Блок ручного ввода личных встреч (без изменений) -----
+        # ----- Блок ручного ввода личных встреч -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
@@ -551,7 +1061,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.success("Добавлено")
                 st.rerun()
 
-        # Отображение истории встреч (без вычитания)
+        # Отображение истории встреч
         key_pair = (home, away)
         rev_key = (away, home)
         current_h2h = []
@@ -598,15 +1108,55 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # Прогноз по очкам (без вычитания H2H)
+                # Прогноз по очкам
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
                 )
-                min_matches = min(h_matches if h_matches else 999, a_matches if a_matches else 999)
-                # Здесь должна быть логика выбора корректирующей функции (как в предыдущих версиях)
-                # Для краткости приведу пример для мужчин и женщин (вставьте свои функции)
-                # ...
+                # Определяем минимальное количество матчей для выбора формулы
+                min_matches = min(
+                    h_matches if h_matches is not None else 999,
+                    a_matches if a_matches is not None else 999
+                )
+                if gender == "Мужчины":
+                    if min_matches <= 2:
+                        adjusted = adjust_handicap_men_2(raw_handicap)
+                        formula = "мужской (мало игр, 2)"
+                    elif min_matches == 3:
+                        adjusted = adjust_handicap_men_3(raw_handicap)
+                        formula = "мужской (3 игры)"
+                    else:
+                        if neutral_field:
+                            adjusted = adjust_handicap_men_neutral(raw_handicap)
+                            formula = "мужской нейтральной (4+ матчей)"
+                        else:
+                            adjusted = adjust_handicap_men_home(raw_handicap)
+                            formula = "мужской домашней (4+ матчей)"
+                else:  # Женщины
+                    if min_matches <= 2:
+                        adjusted = adjust_handicap_women_2(raw_handicap)
+                        formula = "женской (мало игр, 2)"
+                    elif min_matches == 3:
+                        adjusted = adjust_handicap_women_3(raw_handicap)
+                        formula = "женской (3 игры)"
+                    else:
+                        if neutral_field:
+                            adjusted = adjust_handicap_women_neutral(raw_handicap)
+                            formula = "женской нейтральной (4+ матчей)"
+                        else:
+                            adjusted = adjust_handicap_women_home(raw_handicap)
+                            formula = "женской домашней (4+ матчей)"
+
                 st.subheader("⚖️ Прогноз по очкам (скорректированный)")
-                # (здесь должно быть применение adjust_handicap_*)
-                st.write(f"Исходная фора: {raw_handicap:.1f}")
+                if adjusted > 0:
+                    st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
+                elif adjusted < 0:
+                    st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
+                else:
+                    st.info("Фора близка к нулю")
+                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {formula}")
+else:
+    if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
+        st.warning("Активная таблица пуста")
+    else:
+        st.info("Выберите источник данных и загрузите команды.")
