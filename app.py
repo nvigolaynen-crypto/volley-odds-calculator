@@ -776,26 +776,28 @@ def load_teams_from_url(url, combine_phases):
         return None, "URL не поддерживается"
     
     if combine_phases and "dataproject.com" in url:
-        # Автоматический перебор этапов для Data Project
         import re
-        match = re.search(r'ID=(\d+)', url)
-        if not match:
-            return None, "Не удалось определить ID соревнования"
-        comp_id = match.group(1)
-        base_url = re.sub(r'PID=\d+', '', url)
+        # Удаляем существующий PID
+        base_url = re.sub(r'[?&]PID=\d+', '', url)
+        # Добавляем разделитель
         if '?' in base_url:
             if not (base_url.endswith('&') or base_url.endswith('?')):
                 base_url += '&'
         else:
             base_url += '?'
         all_dfs = []
+        # Перебираем PID 171-176 (можно расширить при необходимости)
         for pid in range(171, 177):
             phase_url = f"{base_url}PID={pid}"
-            df, err = parser.fetch_stats(phase_url, combine_phases=False)
-            if df is not None and not df.empty:
-                all_dfs.append(df)
+            try:
+                df, err = parser.fetch_stats(phase_url, combine_phases=False)
+                if df is not None and not df.empty:
+                    all_dfs.append(df)
+            except:
+                continue
         if not all_dfs:
-            return None, "Не удалось загрузить ни одного этапа"
+            return None, "Не удалось загрузить ни одного этапа. Проверьте ID соревнования."
+        # Суммирование
         combined = {}
         for df in all_dfs:
             for _, row in df.iterrows():
@@ -1172,7 +1174,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # Прогноз по очкам (с учётом матчей и выбором формулы)
+                # Прогноз по очкам
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
