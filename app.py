@@ -580,7 +580,7 @@ def detect_gender_by_url(url: str) -> str:
         return "Мужчины"
     return None
 
-# ==================== ПАРСЕРЫ ТАБЛИЦ ====================
+# ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
 
 def parse_table_to_df(data_source, file_type=None):
     if file_type == 'csv':
@@ -710,7 +710,7 @@ def parse_table_to_df(data_source, file_type=None):
             if rows:
                 return pd.DataFrame(rows)
         return None
-    else:  # text
+    else:
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
@@ -796,6 +796,10 @@ if 'selected_user_table' not in st.session_state:
     st.session_state.selected_user_table = None
 if 'detected_gender' not in st.session_state:
     st.session_state.detected_gender = None
+if 'home_team' not in st.session_state:
+    st.session_state.home_team = None
+if 'away_team' not in st.session_state:
+    st.session_state.away_team = None
 
 # ==================== БОКОВАЯ ПАНЕЛЬ (ТАБЛИЦЫ) ====================
 with st.sidebar:
@@ -828,7 +832,7 @@ with st.sidebar:
         upload_method = st.radio("Способ загрузки", ["Текстовый ввод", "CSV/Excel"])
         if upload_method == "Текстовый ввод":
             st.markdown("Формат: `Название;Сеты;Мячи` или `Название;Сеты;Мячи;Матчи`")
-            text_data = st.text_area("Введите данные", height=200, help="Пример:\nЗенит-Казань;87:24;2655:2259;30")
+            text_data = st.text_area("Введите данные", height=200)
             if st.button("Создать таблицу"):
                 df_new = parse_text_to_df(text_data)
                 if df_new is not None:
@@ -874,6 +878,7 @@ with st.sidebar:
             upd_name = st.selectbox("Выберите таблицу", list(st.session_state.user_tables.keys()))
             upd_method = st.radio("Способ", ["Текстовый ввод","CSV/Excel"])
             if upd_method == "Текстовый ввод":
+                st.markdown("Формат: `Название;Сеты;Мячи;Матчи` (матчи необязательны)")
                 upd_text = st.text_area("Новые данные", height=150)
                 if st.button("Обновить"):
                     df_upd = parse_text_to_df(upd_text)
@@ -1017,7 +1022,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         
         col1, col2 = st.columns(2)
         with col1:
-            home = st.selectbox("Домашняя", teams, key="home_sel")
+            home_index = teams.index(st.session_state.home_team) if st.session_state.home_team in teams else 0
+            home = st.selectbox("Домашняя", teams, index=home_index, key="home_sel")
+            st.session_state.home_team = home
             home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
             h_sv, h_sp = map(int, home_row['Сеты'].split(':'))
             h_bv, h_bp = map(int, home_row['Мячи'].split(':'))
@@ -1026,7 +1033,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             matches_info = f" | Матчей: {h_matches}" if h_matches else ""
             st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%}{matches_info}")
         with col2:
-            away = st.selectbox("Гостевая", teams, key="away_sel")
+            away_index = teams.index(st.session_state.away_team) if st.session_state.away_team in teams else 1 if len(teams)>1 else 0
+            away = st.selectbox("Гостевая", teams, index=away_index, key="away_sel")
+            st.session_state.away_team = away
             away_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
             a_sv, a_sp = map(int, away_row['Сеты'].split(':'))
             a_bv, a_bp = map(int, away_row['Мячи'].split(':'))
@@ -1035,7 +1044,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             matches_info = f" | Матчей: {a_matches}" if a_matches else ""
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}{matches_info}")
 
-        # ----- Блок ручного ввода личных встреч -----
+        # ----- Личные встречи (ручной ввод) -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
@@ -1061,7 +1070,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.success("Добавлено")
                 st.rerun()
 
-        # Отображение истории встреч
         key_pair = (home, away)
         rev_key = (away, home)
         current_h2h = []
@@ -1083,7 +1091,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         else:
             st.info("Нет данных о личных встречах. Добавьте вручную.")
 
-        # ----- Кнопка расчёта прогноза -----
+        # ----- Расчёт прогноза -----
         if st.button("Рассчитать котировки", key="calc"):
             if home == away:
                 st.error("Выберите разные команды")
@@ -1113,15 +1121,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
                 )
-                # Определяем минимальное количество матчей для выбора формулы
-                min_matches = min(
-                    h_matches if h_matches is not None else 999,
-                    a_matches if a_matches is not None else 999
-                )
+                min_matches = min(h_matches if h_matches else 999, a_matches if a_matches else 999)
                 if gender == "Мужчины":
-                    if min_matches <= 2:
+                    if min_matches == 2:
                         adjusted = adjust_handicap_men_2(raw_handicap)
-                        formula = "мужской (мало игр, 2)"
+                        formula = "мужской (2 игры)"
                     elif min_matches == 3:
                         adjusted = adjust_handicap_men_3(raw_handicap)
                         formula = "мужской (3 игры)"
@@ -1133,9 +1137,9 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                             adjusted = adjust_handicap_men_home(raw_handicap)
                             formula = "мужской домашней (4+ матчей)"
                 else:  # Женщины
-                    if min_matches <= 2:
+                    if min_matches == 2:
                         adjusted = adjust_handicap_women_2(raw_handicap)
-                        formula = "женской (мало игр, 2)"
+                        formula = "женской (2 игры)"
                     elif min_matches == 3:
                         adjusted = adjust_handicap_women_3(raw_handicap)
                         formula = "женской (3 игры)"
@@ -1146,7 +1150,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         else:
                             adjusted = adjust_handicap_women_home(raw_handicap)
                             formula = "женской домашней (4+ матчей)"
-
                 st.subheader("⚖️ Прогноз по очкам (скорректированный)")
                 if adjusted > 0:
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
