@@ -6,10 +6,6 @@ from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        """
-        Парсит турнирную таблицу volley.ru.
-        Возвращает DataFrame с колонками: Команда, Сеты, Мячи, Матчи.
-        """
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
@@ -20,78 +16,69 @@ class RussiaVolleyRuParser(BaseParser):
             return None, f"Ошибка загрузки: {e}"
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Ищем таблицу с классом s-table (основная таблица чемпионата)
         table = soup.find('table', class_='s-table')
         if not table:
             return None, "Таблица не найдена"
 
-        # Ищем строки тела таблицы (после заголовка)
-        rows = table.find_all('tr')
-        # Пропускаем заголовок, ищем строки с атрибутом data-teamid
-        data_rows = [row for row in rows if row.find('td', attrs={'data-teamid': True})]
-        if not data_rows:
+        # Ищем строки с командами (в них есть атрибут data-teamid)
+        rows = table.find_all('tr', attrs={'data-teamid': True})
+        if not rows:
             # Альтернативный поиск: строки, где есть ссылка на команду
-            data_rows = [row for row in rows if row.find('a', href=re.compile(r'/teams/'))]
+            rows = table.find_all('tr')
+            rows = [row for row in rows if row.find('a', href=re.compile(r'/teams/'))]
 
         teams = []
         sets_list = []
         points_list = []
         matches_list = []
 
-        for row in data_rows:
+        for row in rows:
             # Название команды – первая ячейка, ссылка
-            name_cell = row.find('td')
-            if not name_cell:
+            first_td = row.find('td')
+            if not first_td:
                 continue
-            link = name_cell.find('a')
+            link = first_td.find('a')
             if link:
                 team = link.get_text(strip=True)
             else:
-                team = name_cell.get_text(strip=True)
+                team = first_td.get_text(strip=True)
             if not team:
                 continue
 
             # Все ячейки строки
             cells = row.find_all('td')
-            if len(cells) < 10:
-                continue
-
-            # Сеты – обычно в предпоследней ячейке (перед очками)
-            # На странице формат "87:24"
-            sets_cell = cells[-2].get_text(strip=True) if len(cells) >= 2 else ''
-            if ':' not in sets_cell:
-                # Возможно, сеты в другой позиции (индекс -3)
-                sets_cell = cells[-3].get_text(strip=True) if len(cells) >= 3 else ''
-            if ':' in sets_cell:
+            # В таблице порядок: Команда, №, далее 30 ячеек с результатами, затем И, В, П, Оч, Пар (сеты), (очки)
+            # Нам нужны колонки "И" (матчи), "Пар" (сеты), последняя колонка (очки)
+            # Ищем по тексту в заголовках? Проще по позиции: после результатов (30 колонок) идут И, В, П, Оч, Пар, Очки.
+            # Длина rows разная в зависимости от этапа, но всегда в конце есть эти колонки.
+            # Найдём индексы нужных колонок, ориентируясь на заголовок таблицы.
+            # Для надёжности: ищем в строке ячейки с текстом, содержащим ":" – это сеты и очки.
+            # Сеты – предпоследняя ячейка с ":", очки – последняя.
+            # Матчи – ячейка с числом от 1 до 50, которая находится до ячеек с ":".
+            # Пройдём по всем ячейкам.
+            sets_cell = None
+            points_cell = None
+            matches_cell = None
+            for idx, cell in enumerate(cells):
+                text = cell.get_text(strip=True)
+                if ':' in text:
+                    # Это либо сеты, либо очки. Сеты обычно идут перед очками.
+                    if sets_cell is None:
+                        sets_cell = text
+                    else:
+                        points_cell = text
+                elif text.isdigit() and 1 <= int(text) <= 50:
+                    # Количество матчей – целое число в разумных пределах
+                    # Берём первое попавшееся (перед сетами)
+                    if matches_cell is None:
+                        matches_cell = int(text)
+            if sets_cell and points_cell:
                 sets_list.append(sets_cell)
-            else:
-                sets_list.append('0:0')
-
-            # Очки – в последней ячейке, формат "2655:2259"
-            points_cell = cells[-1].get_text(strip=True) if cells else ''
-            if ':' in points_cell:
                 points_list.append(points_cell)
             else:
+                sets_list.append('0:0')
                 points_list.append('0:0')
-
-            # Количество матчей – ищем ячейку с заголовком "И" или просто находим число
-            # Обычно это ячейка перед сетами или после побед/поражений
-            matches = None
-            # Ищем по тексту "И" в заголовках, но проще: в строке есть несколько чисел,
-            # одно из них – количество матчей. В таблице volley.ru порядок колонок:
-            # Команда, №, далее счета по турам (много), затем И, В, П, Оч, Пар (сеты), (очки)
-            # Нам нужно найти число, которое находится между столбцами с результатами и сетами.
-            # Упрощённо: ищем все числа в строке, берём первое после названия команды.
-            # Но надёжнее – найти ячейку, которая находится перед ячейкой сетов.
-            # В текущей версии сайта колонка "И" находится за несколько ячеек до сетов.
-            # Пройдём по всем ячейкам, найдём ту, где текст – число, и она не содержит ':'
-            for i, cell in enumerate(cells):
-                text = cell.get_text(strip=True)
-                if text.isdigit() and int(text) >= 1 and int(text) <= 50:
-                    # Это потенциально количество матчей
-                    matches = int(text)
-                    break
-            matches_list.append(matches)
+            matches_list.append(matches_cell if matches_cell is not None else None)
             teams.append(team)
 
         if not teams:
