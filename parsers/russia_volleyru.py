@@ -18,31 +18,6 @@ class RussiaVolleyRuParser(BaseParser):
         if not table:
             return None, "Таблица не найдена"
 
-        # Определяем индексы нужных колонок по заголовку thead
-        thead = table.find('thead')
-        if not thead:
-            return None, "Заголовок таблицы не найден"
-        
-        # Собираем все th из всех строк заголовка
-        headers = []
-        for row in thead.find_all('tr'):
-            for th in row.find_all('th'):
-                text = th.get_text(strip=True)
-                if text:
-                    headers.append(text)
-        
-        # Индексы в строках данных (td) будут соответствовать порядку th
-        # Нужные нам колонки: "И" (матчи), "Пар" (сеты), а также последняя ячейка с очками (data-balls)
-        try:
-            idx_matches = headers.index('И')
-        except ValueError:
-            idx_matches = None
-        try:
-            idx_sets = headers.index('Пар')
-        except ValueError:
-            idx_sets = None
-
-        # Парсим строки данных (каждая строка с атрибутом data-teamid)
         tbody = table.find('tbody')
         rows = tbody.find_all('tr', attrs={'data-teamid': True})
         if not rows:
@@ -57,9 +32,10 @@ class RussiaVolleyRuParser(BaseParser):
 
         for row in rows:
             cells = row.find_all('td')
-            if len(cells) < 2:
+            if len(cells) < 5:
                 continue
-            # Название команды – первая ячейка, ссылка
+
+            # Название команды – первая ячейка
             team_cell = cells[0]
             link = team_cell.find('a')
             team = link.get_text(strip=True) if link else team_cell.get_text(strip=True)
@@ -67,31 +43,27 @@ class RussiaVolleyRuParser(BaseParser):
             if not team:
                 continue
 
-            # Сеты: либо из колонки "Пар", либо предпоследняя ячейка
-            if idx_sets is not None and idx_sets < len(cells):
-                sets_text = cells[idx_sets].get_text(strip=True)
-            else:
-                # fallback: предпоследняя ячейка
-                sets_text = cells[-2].get_text(strip=True) if len(cells) >= 2 else '0:0'
+            # Сеты: последняя ячейка (Пар)
+            sets_cell = cells[-1]
+            sets_text = sets_cell.get_text(strip=True)
             if ':' not in sets_text:
                 sets_text = '0:0'
-            sw, sl = map(int, sets_text.split(':'))
-            sets_list.append(f"{sw}:{sl}")
+            sets_list.append(sets_text)
 
-            # Очки: всегда в последней ячейке, атрибут data-balls
-            last_cell = cells[-1]
-            balls = last_cell.get('data-balls')
+            # Очки: атрибут data-balls последней ячейки
+            balls = sets_cell.get('data-balls')
             if balls and ':' in balls:
                 points_list.append(balls)
             else:
                 points_list.append('0:0')
 
-            # Количество матчей: из колонки "И"
-            matches = None
-            if idx_matches is not None and idx_matches < len(cells):
-                matches_text = cells[idx_matches].get_text(strip=True)
-                if matches_text.isdigit():
-                    matches = int(matches_text)
+            # Количество матчей: пятая с конца ячейка (И)
+            matches_cell = cells[-5]
+            matches_text = matches_cell.get_text(strip=True)
+            if matches_text.isdigit():
+                matches = int(matches_text)
+            else:
+                matches = None
             matches_list.append(matches)
             teams.append(team)
 
