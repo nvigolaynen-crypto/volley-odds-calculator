@@ -81,16 +81,32 @@ class RussiaVolleyRuParser(BaseParser):
             raise ValueError("Не найдена матричная таблица")
         return self._parse_matrix_table(matrix_table)
 
+    def _get_matches_column_index(self, table):
+        """Возвращает индекс колонки 'И' в заголовке таблицы"""
+        thead = table.find('thead')
+        if not thead:
+            return None
+        header_row = thead.find('tr')
+        if not header_row:
+            return None
+        ths = header_row.find_all('th')
+        for idx, th in enumerate(ths):
+            if th.get_text(strip=True) == 'И':
+                return idx
+        return None
+
     def _parse_matrix_table(self, table):
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
         stats = {}
+        matches_col_idx = self._get_matches_column_index(table)
+        
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 2:
                 continue
             team_name = cells[0].get_text(strip=True).split('(')[0].strip()
-            # Последняя ячейка содержит сеты и очки (data-balls)
+            # Последняя ячейка содержит сеты и очки
             last_cell = cells[-1]
             sets_text = last_cell.get_text(strip=True)
             if ':' in sets_text:
@@ -103,16 +119,12 @@ class RussiaVolleyRuParser(BaseParser):
             else:
                 pw = pl = 0
             
-            # Поиск количества матчей (колонка "И") - ищем среди всех ячеек строки
+            # Количество матчей из колонки "И"
             matches = None
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if text.isdigit():
-                    val = int(text)
-                    if 1 <= val <= 50:   # разумное число матчей
-                        matches = val
-                        break
-            # Если не нашли, оставляем None (будет вычислено позже из сетов)
+            if matches_col_idx is not None and matches_col_idx < len(cells):
+                matches_text = cells[matches_col_idx].get_text(strip=True)
+                if matches_text.isdigit():
+                    matches = int(matches_text)
             
             stats[team_name] = {
                 'sets_won': sw,
@@ -130,7 +142,6 @@ class RussiaVolleyRuParser(BaseParser):
         df = df.reset_index().rename(columns={'index': 'Команда'})
         df['Сеты'] = df['sets_won'].astype(str) + ':' + df['sets_lost'].astype(str)
         df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
-        # Добавляем колонку Матчи (если есть)
         if 'matches' in df.columns:
             df = df.rename(columns={'matches': 'Матчи'})
         else:
