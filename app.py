@@ -1026,8 +1026,10 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             home = st.selectbox("Домашняя", teams, index=home_index, key="home_sel")
             st.session_state.home_team = home
             home_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == home].iloc[0]
-            h_sv, h_sp = map(int, home_row['Сеты'].split(':'))
-            h_bv, h_bp = map(int, home_row['Мячи'].split(':'))
+            h_sets_str = home_row['Сеты']
+            h_points_str = home_row['Мячи']
+            h_sv, h_sp = map(int, h_sets_str.split(':'))
+            h_bv, h_bp = map(int, h_points_str.split(':'))
             h_matches = home_row['Матчи'] if 'Матчи' in home_row and pd.notna(home_row['Матчи']) else None
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
             matches_info = f" | Матчей: {h_matches}" if h_matches else ""
@@ -1037,8 +1039,10 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             away = st.selectbox("Гостевая", teams, index=away_index, key="away_sel")
             st.session_state.away_team = away
             away_row = st.session_state.df_teams[st.session_state.df_teams['Команда'] == away].iloc[0]
-            a_sv, a_sp = map(int, away_row['Сеты'].split(':'))
-            a_bv, a_bp = map(int, away_row['Мячи'].split(':'))
+            a_sets_str = away_row['Сеты']
+            a_points_str = away_row['Мячи']
+            a_sv, a_sp = map(int, a_sets_str.split(':'))
+            a_bv, a_bp = map(int, a_points_str.split(':'))
             a_matches = away_row['Матчи'] if 'Матчи' in away_row and pd.notna(away_row['Матчи']) else None
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             matches_info = f" | Матчей: {a_matches}" if a_matches else ""
