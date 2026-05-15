@@ -26,7 +26,6 @@ class RussiaVolleyRuParser(BaseParser):
             print("[DEBUG] Матричная таблица не найдена")
             return pd.DataFrame()
 
-        # Сопоставление номеров команд
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
         team_num_by_name = {}
@@ -91,6 +90,7 @@ class RussiaVolleyRuParser(BaseParser):
             if len(cells) < 2:
                 continue
             team_name = cells[0].get_text(strip=True).split('(')[0].strip()
+            # Последняя ячейка содержит сеты и очки (data-balls)
             last_cell = cells[-1]
             sets_text = last_cell.get_text(strip=True)
             if ':' in sets_text:
@@ -102,11 +102,24 @@ class RussiaVolleyRuParser(BaseParser):
                 pw, pl = map(int, balls.split(':'))
             else:
                 pw = pl = 0
+            
+            # Поиск количества матчей (колонка "И") - ищем среди всех ячеек строки
+            matches = None
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if text.isdigit():
+                    val = int(text)
+                    if 1 <= val <= 50:   # разумное число матчей
+                        matches = val
+                        break
+            # Если не нашли, оставляем None (будет вычислено позже из сетов)
+            
             stats[team_name] = {
                 'sets_won': sw,
                 'sets_lost': sl,
                 'points_won': pw,
-                'points_lost': pl
+                'points_lost': pl,
+                'matches': matches
             }
         return stats
 
@@ -117,4 +130,9 @@ class RussiaVolleyRuParser(BaseParser):
         df = df.reset_index().rename(columns={'index': 'Команда'})
         df['Сеты'] = df['sets_won'].astype(str) + ':' + df['sets_lost'].astype(str)
         df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
-        return df.sort_values('sets_won', ascending=False)[['Команда', 'Сеты', 'Мячи']]
+        # Добавляем колонку Матчи (если есть)
+        if 'matches' in df.columns:
+            df = df.rename(columns={'matches': 'Матчи'})
+        else:
+            df['Матчи'] = None
+        return df.sort_values('sets_won', ascending=False)[['Команда', 'Сеты', 'Мячи', 'Матчи']]
