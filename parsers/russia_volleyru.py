@@ -11,7 +11,6 @@ class RussiaVolleyRuParser(BaseParser):
         return df, pd.DataFrame()
 
     def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        # (этот метод не меняется, он работает)
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         def clean(name):
             return name.split('(')[0].strip().lower()
@@ -81,71 +80,50 @@ class RussiaVolleyRuParser(BaseParser):
             raise ValueError("Не найдена матричная таблица")
         return self._parse_matrix_table(matrix_table)
 
-    def _get_column_mapping(self, table):
-        """Создаёт словарь: название колонки (по тексту th) -> индекс ячейки в строке"""
-        thead = table.find('thead')
-        if not thead:
-            return {}
-        # Ищем строку заголовка, которая содержит th с текстом "И" (обычно вторая строка)
-        header_rows = thead.find_all('tr')
-        for header_row in header_rows:
-            ths = header_row.find_all('th')
-            # Проверяем, есть ли среди них "И"
-            if any('И' in th.get_text(strip=True) for th in ths):
-                break
-        else:
-            # Если не нашли, берём первую строку
-            header_row = header_rows[0] if header_rows else None
-            if not header_row:
-                return {}
-            ths = header_row.find_all('th')
-        mapping = {}
-        for idx, th in enumerate(ths):
-            text = th.get_text(strip=True)
-            if text:
-                mapping[text] = idx
-        return mapping
-
     def _parse_matrix_table(self, table):
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
         stats = {}
-        column_mapping = self._get_column_mapping(table)
-        # Индексы для нужных колонок
-        idx_matches = column_mapping.get('И')
-        idx_sets = column_mapping.get('Пар')
-        # Очки – всегда в последней ячейке (содержит data-balls)
+        
+        # Ищем индекс колонки "И" по заголовку
+        thead = table.find('thead')
+        matches_col_idx = None
+        if thead:
+            for row in thead.find_all('tr'):
+                ths = row.find_all('th')
+                for idx, th in enumerate(ths):
+                    if th.get_text(strip=True) == 'И':
+                        matches_col_idx = idx
+                        break
+                if matches_col_idx is not None:
+                    break
+        
         for row in rows:
             cells = row.find_all('td')
             if len(cells) < 2:
                 continue
             team_name = cells[0].get_text(strip=True).split('(')[0].strip()
-            # Количество матчей
-            matches = None
-            if idx_matches is not None and idx_matches < len(cells):
-                matches_text = cells[idx_matches].get_text(strip=True)
-                if matches_text.isdigit():
-                    matches = int(matches_text)
-            # Сеты (из колонки "Пар")
-            sets = '0:0'
-            if idx_sets is not None and idx_sets < len(cells):
-                sets = cells[idx_sets].get_text(strip=True)
-                if ':' not in sets:
-                    sets = '0:0'
-            else:
-                # запасной вариант: последняя ячейка перед очками
-                if len(cells) >= 2:
-                    sets = cells[-2].get_text(strip=True)
-                    if ':' not in sets:
-                        sets = '0:0'
-            sw, sl = map(int, sets.split(':'))
-            # Очки (из последней ячейки, атрибут data-balls)
+            # Последняя ячейка содержит сеты и очки (как в рабочей версии)
             last_cell = cells[-1]
+            sets_text = last_cell.get_text(strip=True)
+            if ':' in sets_text:
+                sw, sl = map(int, sets_text.split(':'))
+            else:
+                sw = sl = 0
             balls = last_cell.get('data-balls')
             if balls and ':' in balls:
                 pw, pl = map(int, balls.split(':'))
             else:
                 pw = pl = 0
+            
+            # Количество матчей из колонки "И"
+            matches = None
+            if matches_col_idx is not None and matches_col_idx < len(cells):
+                matches_text = cells[matches_col_idx].get_text(strip=True)
+                if matches_text.isdigit():
+                    matches = int(matches_text)
+            # Если не нашли, оставляем None (будет оценка по сетам в app.py)
+            
             stats[team_name] = {
                 'sets_won': sw,
                 'sets_lost': sl,
