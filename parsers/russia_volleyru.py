@@ -20,10 +20,8 @@ class RussiaVolleyRuParser(BaseParser):
         if not table:
             return None, "Таблица не найдена"
 
-        # Ищем строки с командами (в них есть атрибут data-teamid)
         rows = table.find_all('tr', attrs={'data-teamid': True})
         if not rows:
-            # Альтернативный поиск: строки, где есть ссылка на команду
             rows = table.find_all('tr')
             rows = [row for row in rows if row.find('a', href=re.compile(r'/teams/'))]
 
@@ -33,43 +31,26 @@ class RussiaVolleyRuParser(BaseParser):
         matches_list = []
 
         for row in rows:
-            # Название команды – первая ячейка, ссылка
             first_td = row.find('td')
             if not first_td:
                 continue
             link = first_td.find('a')
-            if link:
-                team = link.get_text(strip=True)
-            else:
-                team = first_td.get_text(strip=True)
+            team = link.get_text(strip=True) if link else first_td.get_text(strip=True)
             if not team:
                 continue
 
-            # Все ячейки строки
             cells = row.find_all('td')
-            # В таблице порядок: Команда, №, далее 30 ячеек с результатами, затем И, В, П, Оч, Пар (сеты), (очки)
-            # Нам нужны колонки "И" (матчи), "Пар" (сеты), последняя колонка (очки)
-            # Ищем по тексту в заголовках? Проще по позиции: после результатов (30 колонок) идут И, В, П, Оч, Пар, Очки.
-            # Длина rows разная в зависимости от этапа, но всегда в конце есть эти колонки.
-            # Найдём индексы нужных колонок, ориентируясь на заголовок таблицы.
-            # Для надёжности: ищем в строке ячейки с текстом, содержащим ":" – это сеты и очки.
-            # Сеты – предпоследняя ячейка с ":", очки – последняя.
-            # Матчи – ячейка с числом от 1 до 50, которая находится до ячеек с ":".
-            # Пройдём по всем ячейкам.
             sets_cell = None
             points_cell = None
             matches_cell = None
-            for idx, cell in enumerate(cells):
+            for cell in cells:
                 text = cell.get_text(strip=True)
                 if ':' in text:
-                    # Это либо сеты, либо очки. Сеты обычно идут перед очками.
                     if sets_cell is None:
                         sets_cell = text
                     else:
                         points_cell = text
                 elif text.isdigit() and 1 <= int(text) <= 50:
-                    # Количество матчей – целое число в разумных пределах
-                    # Берём первое попавшееся (перед сетами)
                     if matches_cell is None:
                         matches_cell = int(text)
             if sets_cell and points_cell:
