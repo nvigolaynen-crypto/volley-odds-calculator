@@ -1,120 +1,106 @@
-import re
 import requests
 from bs4 import BeautifulSoup
-from collections import defaultdict
 import pandas as pd
+import re
 from .base_parser import BaseParser
 
 class RussiaVolleyRuParser(BaseParser):
     def fetch_stats(self, url: str, combine_phases: bool = False):
-        stats = self._fetch_single_phase(url)
-        df = self._make_dataframe(stats)
-        return df, pd.DataFrame()
+        """
+        Парсит турнирную таблицу volley.ru.
+        Возвращает DataFrame с колонками: Команда, Сеты, Мячи, Матчи.
+        """
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+        except Exception as e:
+            return None, f"Ошибка загрузки: {e}"
 
-    def fetch_head_to_head(self, url: str, team1: str, team2: str):
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        def clean(name):
-            return name.split('(')[0].strip().lower()
-        t1 = clean(team1)
-        t2 = clean(team2)
-        print(f"[DEBUG] Поиск личных встреч: '{t1}' vs '{t2}'")
-
-        resp = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(resp.text, 'html.parser')
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # Ищем таблицу с классом s-table (основная таблица чемпионата)
         table = soup.find('table', class_='s-table')
-        if not table or 's-table--round' in table.get('class', []):
-            print("[DEBUG] Матричная таблица не найдена")
-            return pd.DataFrame()
+        if not table:
+            return None, "Таблица не найдена"
 
-        # Сопоставление номеров команд
-        tbody = table.find('tbody')
-        rows = tbody.find_all('tr')
-        team_num_by_name = {}
-        for row in rows:
+        # Ищем строки тела таблицы (после заголовка)
+        rows = table.find_all('tr')
+        # Пропускаем заголовок, ищем строки с атрибутом data-teamid
+        data_rows = [row for row in rows if row.find('td', attrs={'data-teamid': True})]
+        if not data_rows:
+            # Альтернативный поиск: строки, где есть ссылка на команду
+            data_rows = [row for row in rows if row.find('a', href=re.compile(r'/teams/'))]
+
+        teams = []
+        sets_list = []
+        points_list = []
+        matches_list = []
+
+        for row in data_rows:
+            # Название команды – первая ячейка, ссылка
+            name_cell = row.find('td')
+            if not name_cell:
+                continue
+            link = name_cell.find('a')
+            if link:
+                team = link.get_text(strip=True)
+            else:
+                team = name_cell.get_text(strip=True)
+            if not team:
+                continue
+
+            # Все ячейки строки
             cells = row.find_all('td')
-            if len(cells) < 2:
+            if len(cells) < 10:
                 continue
-            raw = cells[0].get_text(strip=True)
-            cleaned = clean(raw)
-            num = int(cells[1].get_text(strip=True))
-            team_num_by_name[cleaned] = num
 
-        if t1 not in team_num_by_name or t2 not in team_num_by_name:
-            print("[DEBUG] Одна из команд не найдена")
-            return pd.DataFrame()
-
-        home_num = team_num_by_name[t1]
-        away_num = team_num_by_name[t2]
-
-        cell = soup.find('td', {'data-i': str(home_num), 'data-j': str(away_num)})
-        if not cell:
-            cell = soup.find('td', {'data-i': str(away_num), 'data-j': str(home_num)})
-        if not cell:
-            print("[DEBUG] Ячейка не найдена")
-            return pd.DataFrame()
-
-        divs = cell.find_all('div')
-        matches = []
-        for idx, div in enumerate(divs):
-            score_text = div.get_text(strip=True)
-            m = re.search(r'(\d+):(\d+)', score_text)
-            if not m:
-                continue
-            hs, aws = m.groups()
-            if cell.get('data-i') == str(home_num):
-                if idx == 0:
-                    matches.append({'Дата': "1-й круг", 'Хозяева': team1, 'Гости': team2, 'Счёт': f"{hs}:{aws}"})
-                else:
-                    matches.append({'Дата': "2-й круг", 'Хозяева': team2, 'Гости': team1, 'Счёт': f"{hs}:{aws}"})
+            # Сеты – обычно в предпоследней ячейке (перед очками)
+            # На странице формат "87:24"
+            sets_cell = cells[-2].get_text(strip=True) if len(cells) >= 2 else ''
+            if ':' not in sets_cell:
+                # Возможно, сеты в другой позиции (индекс -3)
+                sets_cell = cells[-3].get_text(strip=True) if len(cells) >= 3 else ''
+            if ':' in sets_cell:
+                sets_list.append(sets_cell)
             else:
-                if idx == 0:
-                    matches.append({'Дата': "1-й круг", 'Хозяева': team2, 'Гости': team1, 'Счёт': f"{hs}:{aws}"})
-                else:
-                    matches.append({'Дата': "2-й круг", 'Хозяева': team1, 'Гости': team2, 'Счёт': f"{hs}:{aws}"})
-        return pd.DataFrame(matches)
+                sets_list.append('0:0')
 
-    def _fetch_single_phase(self, url: str):
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        matrix_table = soup.find('table', class_='s-table')
-        if not matrix_table or 's-table--round' in matrix_table.get('class', []):
-            raise ValueError("Не найдена матричная таблица")
-        return self._parse_matrix_table(matrix_table)
-
-    def _parse_matrix_table(self, table):
-        tbody = table.find('tbody')
-        rows = tbody.find_all('tr')
-        stats = {}
-        for row in rows:
-            cells = row.find_all('td')
-            if len(cells) < 2:
-                continue
-            team_name = cells[0].get_text(strip=True).split('(')[0].strip()
-            last_cell = cells[-1]
-            sets_text = last_cell.get_text(strip=True)
-            if ':' in sets_text:
-                sw, sl = map(int, sets_text.split(':'))
+            # Очки – в последней ячейке, формат "2655:2259"
+            points_cell = cells[-1].get_text(strip=True) if cells else ''
+            if ':' in points_cell:
+                points_list.append(points_cell)
             else:
-                sw = sl = 0
-            balls = last_cell.get('data-balls')
-            if balls and ':' in balls:
-                pw, pl = map(int, balls.split(':'))
-            else:
-                pw = pl = 0
-            stats[team_name] = {
-                'sets_won': sw,
-                'sets_lost': sl,
-                'points_won': pw,
-                'points_lost': pl
-            }
-        return stats
+                points_list.append('0:0')
 
-    def _make_dataframe(self, stats):
-        if not stats:
-            return pd.DataFrame()
-        df = pd.DataFrame.from_dict(stats, orient='index')
-        df = df.reset_index().rename(columns={'index': 'Команда'})
-        df['Сеты'] = df['sets_won'].astype(str) + ':' + df['sets_lost'].astype(str)
-        df['Мячи'] = df['points_won'].astype(str) + ':' + df['points_lost'].astype(str)
-        return df.sort_values('sets_won', ascending=False)[['Команда', 'Сеты', 'Мячи']]
+            # Количество матчей – ищем ячейку с заголовком "И" или просто находим число
+            # Обычно это ячейка перед сетами или после побед/поражений
+            matches = None
+            # Ищем по тексту "И" в заголовках, но проще: в строке есть несколько чисел,
+            # одно из них – количество матчей. В таблице volley.ru порядок колонок:
+            # Команда, №, далее счета по турам (много), затем И, В, П, Оч, Пар (сеты), (очки)
+            # Нам нужно найти число, которое находится между столбцами с результатами и сетами.
+            # Упрощённо: ищем все числа в строке, берём первое после названия команды.
+            # Но надёжнее – найти ячейку, которая находится перед ячейкой сетов.
+            # В текущей версии сайта колонка "И" находится за несколько ячеек до сетов.
+            # Пройдём по всем ячейкам, найдём ту, где текст – число, и она не содержит ':'
+            for i, cell in enumerate(cells):
+                text = cell.get_text(strip=True)
+                if text.isdigit() and int(text) >= 1 and int(text) <= 50:
+                    # Это потенциально количество матчей
+                    matches = int(text)
+                    break
+            matches_list.append(matches)
+            teams.append(team)
+
+        if not teams:
+            return None, "Не удалось извлечь команды"
+
+        df = pd.DataFrame({
+            'Команда': teams,
+            'Сеты': sets_list,
+            'Мячи': points_list,
+            'Матчи': matches_list
+        })
+        return df, None
