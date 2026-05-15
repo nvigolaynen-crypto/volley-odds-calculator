@@ -125,6 +125,13 @@ class RussiaVolleyRuParser(BaseParser):
                 matches_text = cells[matches_col_idx].get_text(strip=True)
                 if matches_text.isdigit():
                     matches = int(matches_text)
+                else:
+                    # Если это не число, возможно, колонка сдвинута — пробуем найти число в ячейках до последней
+                    for cell in cells:
+                        text = cell.get_text(strip=True)
+                        if text.isdigit() and 1 <= int(text) <= 50:
+                            matches = int(text)
+                            break
             
             stats[team_name] = {
                 'sets_won': sw,
