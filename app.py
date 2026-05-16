@@ -741,14 +741,10 @@ def get_matches_value(matches, sets_w, sets_l):
     """Возвращает количество матчей: если matches есть и >0, то его, иначе оценка по сетам с округлением"""
     if matches is not None and matches > 0:
         return matches
-    else:
-        # Оценка по сетам, но округление до целого
-        total_sets = sets_w + sets_l
-        if total_sets == 0:
-            return 1
-        # Количество матчей = округлённое (выигранные+проигранные сеты) / 3
-        # Это приближение, но лучше, чем целочисленное деление
-        return max(1, round(total_sets / 3))
+    total_sets = sets_w + sets_l
+    if total_sets == 0:
+        return 1
+    return max(1, round(total_sets / 3))
 
 def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                            a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
@@ -759,12 +755,8 @@ def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
     return home_avg - away_avg, h_m, a_m
 
 def calculate_raw_handicap_with_h2h(h_data, a_data, h2h_list):
-    """Вычитает личные встречи из статистики"""
-    h_matches_orig = h_data['matches']
-    a_matches_orig = a_data['matches']
-    # Получаем исходное количество матчей (с оценкой, если не задано)
-    h_m_orig = get_matches_value(h_matches_orig, h_data['sets_w'], h_data['sets_l'])
-    a_m_orig = get_matches_value(a_matches_orig, a_data['sets_w'], a_data['sets_l'])
+    h_m_orig = get_matches_value(h_data['matches'], h_data['sets_w'], h_data['sets_l'])
+    a_m_orig = get_matches_value(a_data['matches'], a_data['sets_w'], a_data['sets_l'])
 
     sum_diff = 0
     for enc in h2h_list:
@@ -1117,6 +1109,8 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             h_matches = home_row['Матчи'] if 'Матчи' in home_row and pd.notna(home_row['Матчи']) else None
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
             st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%}")
+            if h_matches:
+                st.caption(f"Исходно матчей: {h_matches}")
         with col2:
             away_index = teams.index(st.session_state.away_team) if st.session_state.away_team in teams else 1 if len(teams)>1 else 0
             away = st.selectbox("Гостевая", teams, index=away_index, key="away_sel")
@@ -1129,6 +1123,8 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             a_matches = away_row['Матчи'] if 'Матчи' in away_row and pd.notna(away_row['Матчи']) else None
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}")
+            if a_matches:
+                st.caption(f"Исходно матчей: {a_matches}")
 
         # Собираем личные встречи между home и away
         key_pair = (home, away)
@@ -1220,7 +1216,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # ----- Прогноз по очкам -----
+                # ----- Прогноз по очкам: выбор метода -----
                 home_data = {
                     'name': home,
                     'sets_w': h_sv, 'sets_l': h_sp,
@@ -1234,9 +1230,11 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     'matches': a_matches
                 }
                 if subtract_h2h and h2h_encounters:
+                    # Используем вычитание личных встреч
                     raw_handicap, h_adj_m, a_adj_m = calculate_raw_handicap_with_h2h(home_data, away_data, h2h_encounters)
                     matches_info = f"Матчей после вычета H2H: хозяева – {h_adj_m}, гости – {a_adj_m}"
                 else:
+                    # Без вычитания – исходная статистика
                     raw_handicap, h_adj_m, a_adj_m = calculate_raw_handicap(
                         h_sv, h_sp, h_bv, h_bp, h_matches,
                         a_sv, a_sp, a_bv, a_bp, a_matches
