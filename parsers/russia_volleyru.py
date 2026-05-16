@@ -21,7 +21,6 @@ class RussiaVolleyRuParser(BaseParser):
         tbody = table.find('tbody')
         rows = tbody.find_all('tr', attrs={'data-teamid': True})
         if not rows:
-            # fallback: строки, содержащие ссылку на команду
             rows = tbody.find_all('tr')
             rows = [row for row in rows if row.find('a', href=re.compile(r'/teams/'))]
 
@@ -34,8 +33,6 @@ class RussiaVolleyRuParser(BaseParser):
             cells = row.find_all('td')
             if len(cells) < 5:
                 continue
-
-            # Название команды – первая ячейка
             team_cell = cells[0]
             link = team_cell.find('a')
             team = link.get_text(strip=True) if link else team_cell.get_text(strip=True)
@@ -43,21 +40,18 @@ class RussiaVolleyRuParser(BaseParser):
             if not team:
                 continue
 
-            # Сеты: последняя ячейка (Пар)
             sets_cell = cells[-1]
             sets_text = sets_cell.get_text(strip=True)
             if ':' not in sets_text:
                 sets_text = '0:0'
             sets_list.append(sets_text)
 
-            # Очки: атрибут data-balls последней ячейки
             balls = sets_cell.get('data-balls')
             if balls and ':' in balls:
                 points_list.append(balls)
             else:
                 points_list.append('0:0')
 
-            # Количество матчей: пятая с конца ячейка (И)
             matches_cell = cells[-5]
             matches_text = matches_cell.get_text(strip=True)
             if matches_text.isdigit():
