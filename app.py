@@ -8,8 +8,7 @@ from bs4 import BeautifulSoup
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
-# ==================== КОРРЕКТИРОВКИ ФОРЫ (все функции) ====================
-
+# ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
         return handicap * 1.3
@@ -550,66 +549,8 @@ def adjust_handicap_women_3(handicap: float) -> float:
     else:
         return handicap * 1.4
 
-# ==================== ОБЩИЕ ФУНКЦИИ ====================
-
-def prob_win_match(p: float) -> float:
-    if p <= 0:
-        return 0.0
-    if p >= 1:
-        return 1.0
-    q = 1 - p
-    return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
-
-def calculate_raw_handicap_without_h2h(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
-                                      a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
-    if h_matches is None or h_matches <= 0:
-        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
-    if a_matches is None or a_matches <= 0:
-        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
-    home_avg_diff = (h_pts_w - h_pts_l) / h_matches
-    away_avg_diff = (a_pts_w - a_pts_l) / a_matches
-    return home_avg_diff - away_avg_diff
-
-def calculate_raw_handicap_with_h2h(h_data, a_data, h2h_list):
-    h_matches_orig = h_data['matches'] if h_data['matches'] is not None else (h_data['sets_w'] + h_data['sets_l']) // 3
-    a_matches_orig = a_data['matches'] if a_data['matches'] is not None else (a_data['sets_w'] + a_data['sets_l']) // 3
-    if h_matches_orig <= 0:
-        h_matches_orig = 1
-    if a_matches_orig <= 0:
-        a_matches_orig = 1
-    sum_diff = 0
-    for enc in h2h_list:
-        if enc['home'] == h_data['name']:
-            sum_diff += enc['pts_diff']
-        else:
-            sum_diff += -enc['pts_diff']
-    count = len(h2h_list)
-    h_matches_adj = h_matches_orig - count
-    a_matches_adj = a_matches_orig - count
-    if h_matches_adj <= 0:
-        h_matches_adj = 1
-    if a_matches_adj <= 0:
-        a_matches_adj = 1
-    h_pts_diff_adj = (h_data['pts_w'] - h_data['pts_l']) - sum_diff
-    a_pts_diff_adj = (a_data['pts_w'] - a_data['pts_l']) + sum_diff
-    avg_h = h_pts_diff_adj / h_matches_adj
-    avg_a = a_pts_diff_adj / a_matches_adj
-    return avg_h - avg_a, h_matches_adj, a_matches_adj
-
-def detect_gender_by_url(url: str) -> str:
-    url_lower = url.lower()
-    if any(x in url_lower for x in ['femminile', 'women', 'kadinlar', 'liga kobiet', 'womens', 'legavolleyfemminile']):
-        return "Женщины"
-    if any(x in url_lower for x in ['superlega', 'plusliga', 'legavolley.it', 'volley.ru']):
-        return "Мужчины"
-    return None
-
 # ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
-
 def parse_table_to_df(data_source, file_type=None):
-    """
-    Универсальный парсер для загруженных файлов CSV/Excel.
-    """
     if file_type == 'csv':
         content = data_source.getvalue().decode('utf-8')
         lines = content.splitlines()
@@ -741,11 +682,6 @@ def parse_table_to_df(data_source, file_type=None):
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
-    """
-    Парсит текстовую таблицу в формате:
-    - Название;Сеты;Мячи (или Название;Сеты;Мячи;Матчи)
-    - или через пробелы/табуляции (название, затем 4 числа: сеты_в, сеты_п, очки_в, очки_п)
-    """
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -792,8 +728,64 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         return pd.DataFrame(data)
     return None
 
-# ==================== ПАРСЕРЫ URL ====================
+# ==================== ОБЩИЕ ФУНКЦИИ ====================
+def prob_win_match(p: float) -> float:
+    if p <= 0:
+        return 0.0
+    if p >= 1:
+        return 1.0
+    q = 1 - p
+    return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
+def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
+                           a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
+    if h_matches is None or h_matches <= 0:
+        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
+    if a_matches is None or a_matches <= 0:
+        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
+    home_avg = (h_pts_w - h_pts_l) / h_matches
+    away_avg = (a_pts_w - a_pts_l) / a_matches
+    return home_avg - away_avg
+
+def calculate_raw_handicap_with_h2h(h_data, a_data, h2h_list):
+    h_matches_orig = h_data['matches']
+    a_matches_orig = a_data['matches']
+    if h_matches_orig is None or h_matches_orig <= 0:
+        h_matches_orig = (h_data['sets_w'] + h_data['sets_l']) // 3 if (h_data['sets_w'] + h_data['sets_l']) > 0 else 1
+    if a_matches_orig is None or a_matches_orig <= 0:
+        a_matches_orig = (a_data['sets_w'] + a_data['sets_l']) // 3 if (a_data['sets_w'] + a_data['sets_l']) > 0 else 1
+
+    sum_diff = 0
+    for enc in h2h_list:
+        if enc['home'] == h_data['name']:
+            sum_diff += enc['pts_diff']
+        else:
+            sum_diff += -enc['pts_diff']
+    count = len(h2h_list)
+
+    h_matches_adj = h_matches_orig - count
+    a_matches_adj = a_matches_orig - count
+    if h_matches_adj <= 0:
+        h_matches_adj = 1
+    if a_matches_adj <= 0:
+        a_matches_adj = 1
+
+    h_pts_diff_adj = (h_data['pts_w'] - h_data['pts_l']) - sum_diff
+    a_pts_diff_adj = (a_data['pts_w'] - a_data['pts_l']) + sum_diff
+
+    avg_h = h_pts_diff_adj / h_matches_adj
+    avg_a = a_pts_diff_adj / a_matches_adj
+    return avg_h - avg_a, h_matches_adj, a_matches_adj
+
+def detect_gender_by_url(url: str) -> str:
+    url_lower = url.lower()
+    if any(x in url_lower for x in ['femminile', 'women', 'kadinlar', 'liga kobiet', 'womens', 'legavolleyfemminile']):
+        return "Женщины"
+    if any(x in url_lower for x in ['superlega', 'plusliga', 'legavolley.it', 'volley.ru']):
+        return "Мужчины"
+    return None
+
+# ==================== ПАРСЕРЫ URL ====================
 def get_parser_by_url(url: str):
     if "volley.ru" in url:
         return RussiaVolleyRuParser()
@@ -816,7 +808,6 @@ def load_teams_from_url(url, combine_phases):
         soup = BeautifulSoup(resp.text, 'html.parser')
         phase_divs = soup.find_all('div', class_='rmpView')
         if not phase_divs:
-            # Если нет вкладок, пробуем найти основную таблицу
             table = soup.find('table', class_='rgMasterTable')
             if table:
                 phase_divs = [table]
@@ -851,22 +842,17 @@ def load_teams_from_url(url, combine_phases):
                     if combined[team]['matches'] is None:
                         combined[team]['matches'] = 0
                     combined[team]['matches'] += matches
-        if not combined:
-            return None, "Не удалось извлечь данные со страницы"
         rows = []
         for team, stats in combined.items():
-            rows.append({
-                'Команда': team,
-                'Сеты': f"{stats['sets_w']}:{stats['sets_l']}",
-                'Мячи': f"{stats['pts_w']}:{stats['pts_l']}",
-                'Матчи': stats['matches']
-            })
+            rows.append({'Команда': team,
+                         'Сеты': f"{stats['sets_w']}:{stats['sets_l']}",
+                         'Мячи': f"{stats['pts_w']}:{stats['pts_l']}",
+                         'Матчи': stats['matches']})
         return pd.DataFrame(rows), None
     else:
         return parser.fetch_stats(url, combine_phases=False)
 
 # ==================== ИНИЦИАЛИЗАЦИЯ STREAMLIT ====================
-
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
@@ -1011,15 +997,10 @@ else:
 # -------------------- 1. АВТОМАТИЧЕСКИЙ ПАРСИНГ --------------------
 if st.session_state.active_source == "auto":
     with st.form("auto_form"):
-        url = st.text_input(
-            "Введите URL страницы с результатами",
-            placeholder="https://volley.ru/... или https://...dataproject.com/CompetitionStandings.aspx?ID=127"
-        )
+        url = st.text_input("URL", placeholder="https://volley.ru/... или dataproject.com...")
         combine = False
         if "dataproject.com" in url:
-            combine = st.checkbox("Складывать все этапы (только для Data Project)", value=False)
-            if combine:
-                st.caption("Будут автоматически найдены и просуммированы все этапы на странице (1ª Fase, плей-офф и т.д.)")
+            combine = st.checkbox("Складывать все этапы (только для Data Project)")
         load_clicked = st.form_submit_button("📥 Загрузить данные")
         if load_clicked and url:
             with st.spinner("Загрузка..."):
@@ -1142,7 +1123,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%} | Матчей: {a_matches}")
 
-        # Сбор личных встреч между home и away
+        # Собираем личные встречи между home и away
         key_pair = (home, away)
         rev_key = (away, home)
         h2h_encounters = []
@@ -1159,7 +1140,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 'pts_diff': m['Фора по очкам']
             })
 
-        # ----- Блок добавления личных встреч -----
+        # ----- Блок добавления личных встреч (без rerun при изменении полей) -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
@@ -1207,12 +1188,12 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         else:
             st.info("Нет данных о личных встречах. Добавьте вручную.")
 
-        # ----- Расчёт прогноза -----
+        # ----- Кнопка расчёта прогноза -----
         if st.button("Рассчитать котировки", key="calc"):
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # Прогноз по сетам
+                # Прогноз по сетам (не зависит от H2H)
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
                 prob_home_match = prob_win_match(p_home)
@@ -1249,7 +1230,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     raw_handicap, h_adj_m, a_adj_m = calculate_raw_handicap_with_h2h(home_data, away_data, h2h_encounters)
                     matches_info = f"Матчей после вычета H2H: хозяева – {h_adj_m}, гости – {a_adj_m}"
                 else:
-                    raw_handicap = calculate_raw_handicap_without_h2h(
+                    raw_handicap = calculate_raw_handicap(
                         h_sv, h_sp, h_bv, h_bp, h_matches,
                         a_sv, a_sp, a_bv, a_bp, a_matches
                     )
@@ -1285,7 +1266,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         else:
                             adjusted = adjust_handicap_women_home(raw_handicap)
                             formula = "женской домашней (4+ матчей)"
-                
                 st.subheader("⚖️ Прогноз по очкам (скорректированный)")
                 if adjusted > 0:
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
