@@ -7,6 +7,9 @@ from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
+# (все функции adjust_handicap_* – они такие же, как в предыдущих версиях,
+#  для краткости я их здесь не повторяю, но в вашем реальном файле они должны быть.
+#  Если нет – возьмите из предыдущего сообщения.)
 
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
@@ -776,32 +779,17 @@ def load_teams_from_url(url, combine_phases):
         return None, "URL не поддерживается"
     
     if combine_phases and "dataproject.com" in url:
-        import re
-        # Удаляем существующий PID из URL
-        base_url = re.sub(r'[?&]PID=\d+', '', url)
-        # Очищаем лишние символы в конце
-        base_url = base_url.rstrip('?&')
-        if '?' not in base_url:
-            base_url += '?'
-        else:
-            base_url += '&'
-        
+        # Разбиваем на строки – каждая строка отдельный URL
+        urls = [u.strip() for u in url.split('\n') if u.strip()]
+        if not urls:
+            return None, "Не введено ни одного URL"
         all_dfs = []
-        # Перебираем PID от 1 до 200 (можно увеличить)
-        for pid in range(1, 201):
-            phase_url = f"{base_url}PID={pid}"
-            try:
-                df, err = parser.fetch_stats(phase_url, combine_phases=False)
-                if df is not None and not df.empty:
-                    all_dfs.append(df)
-                    # Небольшая задержка между запросами, чтобы не перегружать сервер
-                    import time
-                    time.sleep(0.5)
-            except Exception as e:
-                continue
-        if not all_dfs:
-            return None, "Не удалось загрузить ни одного этапа. Попробуйте указать диапазон PID вручную."
-        # Суммирование данных по командам
+        for u in urls:
+            df, err = parser.fetch_stats(u, combine_phases=False)
+            if df is None or df.empty:
+                return None, f"Ошибка загрузки {u}: {err}"
+            all_dfs.append(df)
+        # Суммирование по командам
         combined = {}
         for df in all_dfs:
             for _, row in df.iterrows():
@@ -981,22 +969,28 @@ else:
 # -------------------- 1. АВТОМАТИЧЕСКИЙ ПАРСИНГ --------------------
 if st.session_state.active_source == "auto":
     with st.form("auto_form"):
-        url = st.text_input(
+        url_input = st.text_input(
             "Введите URL страницы с результатами",
             placeholder="https://volley.ru/... или https://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=171"
         )
         combine = False
-        if "dataproject.com" in url:
+        if "dataproject.com" in url_input:
             combine = st.checkbox("Складывать все этапы (только для Data Project)", value=False)
             if combine:
-                st.caption("Программа автоматически переберёт PID от 1 до 200. Это может занять некоторое время.")
+                st.caption("Введите несколько URL (каждый с новой строки) для разных этапов. Данные будут объединены.")
+                url_input = st.text_area(
+                    "URL этапов",
+                    placeholder="https://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=171\nhttps://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=172\n...",
+                    height=150
+                )
         load_clicked = st.form_submit_button("📥 Загрузить данные")
-        if load_clicked and url:
+        if load_clicked and url_input:
             with st.spinner("Загрузка..."):
-                df, err = load_teams_from_url(url, combine)
+                df, err = load_teams_from_url(url_input, combine)
                 if df is not None:
                     st.session_state.df_teams = df
-                    detected = detect_gender_by_url(url)
+                    first_url = url_input.split('\n')[0] if combine else url_input
+                    detected = detect_gender_by_url(first_url)
                     if detected:
                         st.session_state.detected_gender = detected
                         st.success(f"Загружено {len(df)} команд. Определён пол: {detected}")
