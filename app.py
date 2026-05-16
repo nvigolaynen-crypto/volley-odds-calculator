@@ -887,7 +887,6 @@ with st.sidebar:
                     if 'Команда' in df.columns and 'Сеты' in df.columns and 'Мячи' in df.columns:
                         st.session_state.user_tables[name] = df
                 st.success(f"Импортировано {len(imported)} таблиц")
-                # st.rerun() - убрали лишний rerun
             except Exception as e:
                 st.error(f"Ошибка импорта: {e}")
     with col_clear:
@@ -1132,25 +1131,42 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             with col_b:
                 ha = st.selectbox("Гости", all_teams, key="h2h_a")
             with col_c:
-                sets_h2h = st.text_input("Счёт по сетам", placeholder="3:1")
-            pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h")
+                sets_h2h = st.text_input("Счёт по сетам (опционально)", placeholder="3:1 или оставьте пустым")
+            use_pts = st.checkbox("Указать фору по очкам", key="use_pts_h2h")
+            pts_h2h = 0.0
+            if use_pts:
+                pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h_val")
             date_h2h = st.text_input("Дата", placeholder="01.01.2026")
             if st.button("Добавить", key="add_h2h"):
-                # Валидация счёта
-                if ':' not in sets_h2h:
-                    st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
+                if not sets_h2h.strip() and not use_pts:
+                    st.error("Укажите хотя бы счёт по сетам или фору по очкам")
                 else:
-                    parts = sets_h2h.split(':')
-                    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                        st.error("Счёт должен состоять из двух чисел, например 3:1")
+                    if sets_h2h.strip():
+                        if ':' not in sets_h2h:
+                            st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
+                        else:
+                            parts = sets_h2h.split(':')
+                            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                                st.error("Счёт должен состоять из двух чисел, например 3:1")
+                            else:
+                                key = (hh, ha)
+                                st.session_state.h2h_manual.setdefault(key, []).append({
+                                    'Дата': date_h2h or "(нет даты)",
+                                    'Хозяева': hh,
+                                    'Гости': ha,
+                                    'Счёт по сетам': sets_h2h,
+                                    'Фора по очкам': pts_h2h if use_pts else None
+                                })
+                                st.success("Добавлено")
+                                st.rerun()
                     else:
                         key = (hh, ha)
                         st.session_state.h2h_manual.setdefault(key, []).append({
                             'Дата': date_h2h or "(нет даты)",
                             'Хозяева': hh,
                             'Гости': ha,
-                            'Счёт по сетам': sets_h2h,
-                            'Фора по очкам': pts_h2h
+                            'Счёт по сетам': None,
+                            'Фора по очкам': pts_h2h if use_pts else None
                         })
                         st.success("Добавлено")
                         st.rerun()
@@ -1164,11 +1180,21 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             m2 = m.copy()
             m2['Хозяева'] = home
             m2['Гости'] = away
-            m2['Фора по очкам'] = -m['Фора по очкам']
+            if m2['Фора по очкам'] is not None:
+                m2['Фора по очкам'] = -m2['Фора по очкам']
             current_h2h.append(m2)
         if current_h2h:
             st.subheader(f"История встреч: {home} – {away}")
-            st.dataframe(pd.DataFrame(current_h2h)[['Дата','Хозяева','Гости','Счёт по сетам','Фора по очкам']])
+            display_data = []
+            for m in current_h2h:
+                display_data.append({
+                    'Дата': m['Дата'],
+                    'Хозяева': m['Хозяева'],
+                    'Гости': m['Гости'],
+                    'Счёт по сетам': m['Счёт по сетам'] if m['Счёт по сетам'] else '—',
+                    'Фора по очкам': m['Фора по очкам'] if m['Фора по очкам'] is not None else '—'
+                })
+            st.dataframe(pd.DataFrame(display_data))
             if st.button("Очистить историю этой пары"):
                 st.session_state.h2h_manual.pop(key_pair, None)
                 st.session_state.h2h_manual.pop(rev_key, None)
@@ -1245,12 +1271,17 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     # Опциональный учёт личных встреч
                     use_h2h = st.checkbox("Учесть личные встречи (корректировка форы)", value=False)
                     if use_h2h and current_h2h:
-                        h2h_forces = [m['Фора по очкам'] for m in current_h2h if m['Хозяева'] == home and m['Гости'] == away]
+                        h2h_forces = []
+                        for m in current_h2h:
+                            if m['Фора по очкам'] is not None:
+                                h2h_forces.append(m['Фора по очкам'])
                         if h2h_forces:
                             avg_h2h = sum(h2h_forces) / len(h2h_forces)
                             blend = 0.7
                             adjusted = adjusted * blend + avg_h2h * (1 - blend)
                             st.caption(f"📊 С учётом {len(h2h_forces)} личных встреч (средняя фора {avg_h2h:.1f})")
+                        else:
+                            st.info("В личных встречах не указана фора по очкам, корректировка не применена.")
                     
                     st.subheader("⚖️ Прогноз по очкам (скорректированный)")
                     if adjusted > 0:
