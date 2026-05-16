@@ -3,13 +3,12 @@ import pandas as pd
 import re
 import math
 import json
+import requests
+from bs4 import BeautifulSoup
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
 # ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
-# (все функции adjust_handicap_* – они такие же, как в предыдущих версиях,
-#  для краткости я их здесь не повторяю, но в вашем реальном файле они должны быть.
-#  Если нет – возьмите из предыдущего сообщения.)
 
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
@@ -763,6 +762,72 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         return pd.DataFrame(data)
     return None
 
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ DATA PROJECT ====================
+
+def extract_team_data_from_dataproject_table(table_html: str) -> dict:
+    soup = BeautifulSoup(table_html, 'html.parser')
+    rows = soup.find_all('tr', class_=re.compile(r'RG_Standing_Main_AltBackColor'))
+    if not rows:
+        rows = soup.find_all('tr')
+        rows = [row for row in rows if row.find('span', id=re.compile(r'TeamName'))]
+    teams = {}
+    for row in rows:
+        team_span = row.find('span', id=re.compile(r'TeamName'))
+        if not team_span:
+            continue
+        team = team_span.get_text(strip=True)
+        if not team:
+            continue
+        matches_span = row.find('span', id=re.compile(r'MatchesPlayed'))
+        matches = int(matches_span.get_text(strip=True)) if matches_span and matches_span.get_text(strip=True).isdigit() else None
+        sets_won_span = row.find('span', id=re.compile(r'SetsWon'))
+        sets_lost_span = row.find('span', id=re.compile(r'SetsLost'))
+        sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
+        sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
+        pts_won_span = row.find('span', id=re.compile(r'PuntiFatti'))
+        pts_lost_span = row.find('span', id=re.compile(r'PuntiSubiti'))
+        pts_won = int(pts_won_span.get_text(strip=True)) if pts_won_span else 0
+        pts_lost = int(pts_lost_span.get_text(strip=True)) if pts_lost_span else 0
+        teams[team] = {
+            'sets_w': sets_won,
+            'sets_l': sets_lost,
+            'pts_w': pts_won,
+            'pts_l': pts_lost,
+            'matches': matches
+        }
+    return teams
+
+def extract_all_phases_from_dataproject_page(html: str) -> dict:
+    soup = BeautifulSoup(html, 'html.parser')
+    phase_divs = soup.find_all('div', class_='rmpView')
+    if not phase_divs:
+        table = soup.find('table', class_='rgMasterTable')
+        if table:
+            return extract_team_data_from_dataproject_table(str(table))
+        return {}
+    combined = {}
+    for phase_div in phase_divs:
+        table = phase_div.find('table', class_='rgMasterTable')
+        if not table:
+            continue
+        teams_data = extract_team_data_from_dataproject_table(str(table))
+        for team, stats in teams_data.items():
+            if team not in combined:
+                combined[team] = {
+                    'sets_w': 0, 'sets_l': 0,
+                    'pts_w': 0, 'pts_l': 0,
+                    'matches': 0 if stats['matches'] is not None else None
+                }
+            combined[team]['sets_w'] += stats['sets_w']
+            combined[team]['sets_l'] += stats['sets_l']
+            combined[team]['pts_w'] += stats['pts_w']
+            combined[team]['pts_l'] += stats['pts_l']
+            if stats['matches'] is not None:
+                if combined[team]['matches'] is None:
+                    combined[team]['matches'] = 0
+                combined[team]['matches'] += stats['matches']
+    return combined
+
 # ==================== ПАРСЕРЫ URL ====================
 
 def get_parser_by_url(url: str):
@@ -779,40 +844,17 @@ def load_teams_from_url(url, combine_phases):
         return None, "URL не поддерживается"
     
     if combine_phases and "dataproject.com" in url:
-        # Разбиваем на строки – каждая строка отдельный URL
-        urls = [u.strip() for u in url.split('\n') if u.strip()]
-        if not urls:
-            return None, "Не введено ни одного URL"
-        all_dfs = []
-        for u in urls:
-            df, err = parser.fetch_stats(u, combine_phases=False)
-            if df is None or df.empty:
-                return None, f"Ошибка загрузки {u}: {err}"
-            all_dfs.append(df)
-        # Суммирование по командам
-        combined = {}
-        for df in all_dfs:
-            for _, row in df.iterrows():
-                team = row['Команда']
-                sets_w, sets_l = map(int, row['Сеты'].split(':'))
-                pts_w, pts_l = map(int, row['Мячи'].split(':'))
-                matches = row['Матчи'] if pd.notna(row['Матчи']) else None
-                if team not in combined:
-                    combined[team] = {
-                        'sets_w': 0, 'sets_l': 0,
-                        'pts_w': 0, 'pts_l': 0,
-                        'matches': 0 if matches is not None else None
-                    }
-                combined[team]['sets_w'] += sets_w
-                combined[team]['sets_l'] += sets_l
-                combined[team]['pts_w'] += pts_w
-                combined[team]['pts_l'] += pts_l
-                if matches is not None:
-                    if combined[team]['matches'] is None:
-                        combined[team]['matches'] = 0
-                    combined[team]['matches'] += matches
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+        except Exception as e:
+            return None, f"Ошибка загрузки: {e}"
+        combined_data = extract_all_phases_from_dataproject_page(resp.text)
+        if not combined_data:
+            return None, "Не удалось найти данные на странице"
         rows = []
-        for team, stats in combined.items():
+        for team, stats in combined_data.items():
             rows.append({
                 'Команда': team,
                 'Сеты': f"{stats['sets_w']}:{stats['sets_l']}",
@@ -969,28 +1011,22 @@ else:
 # -------------------- 1. АВТОМАТИЧЕСКИЙ ПАРСИНГ --------------------
 if st.session_state.active_source == "auto":
     with st.form("auto_form"):
-        url_input = st.text_input(
+        url = st.text_input(
             "Введите URL страницы с результатами",
-            placeholder="https://volley.ru/... или https://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=171"
+            placeholder="https://volley.ru/... или https://...dataproject.com/CompetitionStandings.aspx?ID=127"
         )
         combine = False
-        if "dataproject.com" in url_input:
+        if "dataproject.com" in url:
             combine = st.checkbox("Складывать все этапы (только для Data Project)", value=False)
             if combine:
-                st.caption("Введите несколько URL (каждый с новой строки) для разных этапов. Данные будут объединены.")
-                url_input = st.text_area(
-                    "URL этапов",
-                    placeholder="https://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=171\nhttps://...dataproject.com/CompetitionStandings.aspx?ID=127&PID=172\n...",
-                    height=150
-                )
+                st.caption("Будут автоматически найдены и просуммированы все этапы на странице (1ª Fase, плей-офф и т.д.).")
         load_clicked = st.form_submit_button("📥 Загрузить данные")
-        if load_clicked and url_input:
+        if load_clicked and url:
             with st.spinner("Загрузка..."):
-                df, err = load_teams_from_url(url_input, combine)
+                df, err = load_teams_from_url(url, combine)
                 if df is not None:
                     st.session_state.df_teams = df
-                    first_url = url_input.split('\n')[0] if combine else url_input
-                    detected = detect_gender_by_url(first_url)
+                    detected = detect_gender_by_url(url)
                     if detected:
                         st.session_state.detected_gender = detected
                         st.success(f"Загружено {len(df)} команд. Определён пол: {detected}")
@@ -1174,7 +1210,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # Прогноз по очкам (с учётом матчей и выбором формулы)
+                # Прогноз по очкам
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
