@@ -777,27 +777,31 @@ def load_teams_from_url(url, combine_phases):
     
     if combine_phases and "dataproject.com" in url:
         import re
-        # Удаляем существующий PID
+        # Удаляем существующий PID из URL
         base_url = re.sub(r'[?&]PID=\d+', '', url)
-        # Добавляем разделитель
-        if '?' in base_url:
-            if not (base_url.endswith('&') or base_url.endswith('?')):
-                base_url += '&'
-        else:
+        # Очищаем лишние символы в конце
+        base_url = base_url.rstrip('?&')
+        if '?' not in base_url:
             base_url += '?'
+        else:
+            base_url += '&'
+        
         all_dfs = []
-        # Перебираем PID 171-176 (можно расширить при необходимости)
-        for pid in range(171, 177):
+        # Перебираем PID от 1 до 200 (можно увеличить)
+        for pid in range(1, 201):
             phase_url = f"{base_url}PID={pid}"
             try:
                 df, err = parser.fetch_stats(phase_url, combine_phases=False)
                 if df is not None and not df.empty:
                     all_dfs.append(df)
-            except:
+                    # Небольшая задержка между запросами, чтобы не перегружать сервер
+                    import time
+                    time.sleep(0.5)
+            except Exception as e:
                 continue
         if not all_dfs:
-            return None, "Не удалось загрузить ни одного этапа. Проверьте ID соревнования."
-        # Суммирование
+            return None, "Не удалось загрузить ни одного этапа. Попробуйте указать диапазон PID вручную."
+        # Суммирование данных по командам
         combined = {}
         for df in all_dfs:
             for _, row in df.iterrows():
@@ -984,6 +988,8 @@ if st.session_state.active_source == "auto":
         combine = False
         if "dataproject.com" in url:
             combine = st.checkbox("Складывать все этапы (только для Data Project)", value=False)
+            if combine:
+                st.caption("Программа автоматически переберёт PID от 1 до 200. Это может занять некоторое время.")
         load_clicked = st.form_submit_button("📥 Загрузить данные")
         if load_clicked and url:
             with st.spinner("Загрузка..."):
@@ -1174,7 +1180,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # Прогноз по очкам
+                # Прогноз по очкам (с учётом матчей и выбором формулы)
                 raw_handicap = calculate_raw_handicap(
                     h_sv, h_sp, h_bv, h_bp, h_matches,
                     a_sv, a_sp, a_bv, a_bp, a_matches
