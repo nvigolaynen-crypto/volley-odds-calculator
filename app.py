@@ -583,7 +583,7 @@ def detect_gender_by_url(url: str) -> str:
         return "Мужчины"
     return None
 
-# ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) УЛУЧШЕННЫЙ ====================
+# ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
 
 def parse_table_to_df(data_source, file_type=None):
     def safe_int(value, default=0):
@@ -1132,44 +1132,43 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 ha = st.selectbox("Гости", all_teams, key="h2h_a")
             with col_c:
                 sets_h2h = st.text_input("Счёт по сетам (опционально)", placeholder="3:1 или оставьте пустым")
-            use_pts = st.checkbox("Указать фору по очкам", key="use_pts_h2h")
-            pts_h2h = 0.0
-            if use_pts:
-                pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h_val")
+            pts_h2h_str = st.text_input("Фора по очкам (опционально, + если хозяева выиграли)", placeholder="например 5.5 или -3.0")
             date_h2h = st.text_input("Дата", placeholder="01.01.2026")
             if st.button("Добавить", key="add_h2h"):
-                if not sets_h2h.strip() and not use_pts:
+                has_sets = sets_h2h.strip() != ""
+                has_pts = pts_h2h_str.strip() != ""
+                if not has_sets and not has_pts:
                     st.error("Укажите хотя бы счёт по сетам или фору по очкам")
                 else:
-                    if sets_h2h.strip():
+                    sets_valid = True
+                    if has_sets:
                         if ':' not in sets_h2h:
                             st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
+                            sets_valid = False
                         else:
                             parts = sets_h2h.split(':')
                             if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
                                 st.error("Счёт должен состоять из двух чисел, например 3:1")
-                            else:
-                                key = (hh, ha)
-                                st.session_state.h2h_manual.setdefault(key, []).append({
-                                    'Дата': date_h2h or "(нет даты)",
-                                    'Хозяева': hh,
-                                    'Гости': ha,
-                                    'Счёт по сетам': sets_h2h,
-                                    'Фора по очкам': pts_h2h if use_pts else None
-                                })
-                                st.success("Добавлено")
-                                st.rerun()
-                    else:
-                        key = (hh, ha)
-                        st.session_state.h2h_manual.setdefault(key, []).append({
-                            'Дата': date_h2h or "(нет даты)",
-                            'Хозяева': hh,
-                            'Гости': ha,
-                            'Счёт по сетам': None,
-                            'Фора по очкам': pts_h2h if use_pts else None
-                        })
-                        st.success("Добавлено")
-                        st.rerun()
+                                sets_valid = False
+                    if not sets_valid:
+                        st.stop()
+                    pts_value = None
+                    if has_pts:
+                        try:
+                            pts_value = float(pts_h2h_str.replace(',', '.'))
+                        except:
+                            st.error("Фора по очкам должна быть числом, например 5.5 или -3")
+                            st.stop()
+                    key = (hh, ha)
+                    st.session_state.h2h_manual.setdefault(key, []).append({
+                        'Дата': date_h2h or "(нет даты)",
+                        'Хозяева': hh,
+                        'Гости': ha,
+                        'Счёт по сетам': sets_h2h if has_sets else None,
+                        'Фора по очкам': pts_value
+                    })
+                    st.success("Добавлено")
+                    st.rerun()
 
         key_pair = (home, away)
         rev_key = (away, home)
@@ -1207,7 +1206,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
-                # Проверка наличия матчей для расчёта форы
                 if h_matches is None or a_matches is None:
                     st.warning("Для расчёта форы по очкам необходимо указать количество сыгранных матчей для обеих команд. Прогноз по сетам будет рассчитан.")
                 
@@ -1232,7 +1230,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption(f"Вероятность победы в матче через биномиальное распределение (best-of-{best_of}), нормализована.")
 
-                # Прогноз по очкам (только если есть матчи)
+                # Прогноз по очкам
                 if h_matches is not None and a_matches is not None:
                     raw_handicap = calculate_raw_handicap(
                         h_sv, h_sp, h_bv, h_bp, h_matches,
