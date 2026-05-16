@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
-# ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
+# ==================== КОРРЕКТИРОВКИ ФОРЫ (НЕ ТРОГАЕМ) ====================
 
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
@@ -552,20 +552,21 @@ def adjust_handicap_women_3(handicap: float) -> float:
 
 # ==================== ОБЩИЕ ФУНКЦИИ ====================
 
-def prob_win_match(p: float) -> float:
+def prob_win_match(p: float, best_of: int = 5) -> float:
     if p <= 0:
         return 0.0
     if p >= 1:
         return 1.0
     q = 1 - p
-    return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
+    if best_of == 3:
+        return p**2 * (1 + 2*q)
+    else:
+        return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
 def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
                            a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
-    if h_matches is None or h_matches <= 0:
-        h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
-    if a_matches is None or a_matches <= 0:
-        a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
+    if h_matches is None or a_matches is None or h_matches <= 0 or a_matches <= 0:
+        return None
     home_avg_scored = h_pts_w / h_matches
     home_avg_conceded = h_pts_l / h_matches
     away_avg_scored = a_pts_w / a_matches
@@ -582,140 +583,121 @@ def detect_gender_by_url(url: str) -> str:
         return "Мужчины"
     return None
 
-# ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
+# ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) УЛУЧШЕННЫЙ ====================
 
 def parse_table_to_df(data_source, file_type=None):
+    def safe_int(value, default=0):
+        try:
+            cleaned = str(value).replace('.', '').replace(',', '').strip()
+            if cleaned == '' or cleaned.lower() == 'nan':
+                return default
+            return int(float(cleaned))
+        except:
+            return default
+
+    def parse_sets(sets_str):
+        if not isinstance(sets_str, str):
+            sets_str = str(sets_str)
+        if ':' not in sets_str:
+            return 0, 0
+        parts = sets_str.split(':')
+        if len(parts) != 2:
+            return 0, 0
+        try:
+            w = int(float(parts[0]))
+            l = int(float(parts[1]))
+            return w, l
+        except:
+            return 0, 0
+
     if file_type == 'csv':
-        content = data_source.getvalue().decode('utf-8')
-        lines = content.splitlines()
-        data = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if re.match(r'^\d+\s+', line):
-                fields = line.split(',')
-                if len(fields) < 16:
-                    continue
-                team_field = fields[0].strip()
-                team = re.sub(r'^\d+\s+', '', team_field).strip()
-                if not team:
-                    continue
-                try:
-                    sets_won = int(float(fields[12].strip()))
-                    sets_lost = int(float(fields[13].strip()))
-                except:
-                    continue
-                pts_won_str = fields[14].strip().replace('.', '')
-                pts_lost_str = fields[15].strip().replace('.', '')
-                try:
-                    pts_won = int(pts_won_str)
-                    pts_lost = int(pts_lost_str)
-                except:
-                    continue
-                matches = None
-                if len(fields) > 16:
-                    try:
-                        matches = int(float(fields[16].strip()))
-                    except:
-                        pass
-                data.append({
-                    'Команда': team,
-                    'Сеты': f"{sets_won}:{sets_lost}",
-                    'Мячи': f"{pts_won}:{pts_lost}",
-                    'Матчи': matches
-                })
-        if data:
-            return pd.DataFrame(data)
         try:
             df = pd.read_csv(data_source, encoding='utf-8')
-            if 'Матчи' in df.columns:
-                pass
-            elif 'Matches' in df.columns:
-                df.rename(columns={'Matches': 'Матчи'}, inplace=True)
-            team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
-            for col in df.columns:
-                col_low = str(col).lower()
-                if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
-                    team_col = col
-                if 'vinti' in col_low and 'set' in col_low:
-                    sets_won_col = col
-                if 'persi' in col_low and 'set' in col_low:
-                    sets_lost_col = col
-                if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
-                    pts_won_col = col
-                if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
-                    pts_lost_col = col
-            if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
-                rows = []
-                for _, row in df.iterrows():
-                    team = str(row[team_col]).strip()
-                    if not team or team == 'nan':
-                        continue
-                    try:
-                        sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
-                        sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
-                        pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
-                        pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                        matches = None
-                        if 'Матчи' in df.columns:
-                            try:
-                                matches = int(float(str(row['Матчи']).replace(',', '.')))
-                            except:
-                                pass
-                        rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
-                    except:
-                        continue
-                if rows:
-                    return pd.DataFrame(rows)
         except:
-            pass
+            content = data_source.getvalue().decode('utf-8')
+            lines = content.splitlines()
+            data = []
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                if ';' in line:
+                    parts = line.split(';')
+                    if len(parts) >= 3:
+                        team = parts[0].strip()
+                        sets = parts[1].strip()
+                        points = parts[2].strip()
+                        matches = None
+                        if len(parts) >= 4 and parts[3].strip().isdigit():
+                            matches = int(parts[3].strip())
+                        w, l = parse_sets(sets)
+                        pw, pl = parse_sets(points)
+                        if w == 0 and l == 0:
+                            continue
+                        data.append({
+                            'Команда': team,
+                            'Сеты': f"{w}:{l}",
+                            'Мячи': f"{pw}:{pl}",
+                            'Матчи': matches
+                        })
+            if data:
+                return pd.DataFrame(data)
         return None
+
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
-        team_col = sets_won_col = sets_lost_col = pts_won_col = pts_lost_col = None
+        team_col = None
+        sets_col = None
+        points_col = None
         matches_col = None
         for col in df_raw.columns:
             col_low = str(col).lower()
-            if 'squadra' in col_low or 'team' in col_low or 'nome' in col_low:
+            if 'команда' in col_low or 'squadra' in col_low or 'team' in col_low:
                 team_col = col
-            if 'vinti' in col_low and 'set' in col_low:
-                sets_won_col = col
-            if 'persi' in col_low and 'set' in col_low:
-                sets_lost_col = col
-            if 'fatti' in col_low or ('punti' in col_low and 'fat' in col_low):
-                pts_won_col = col
-            if 'subiti' in col_low or ('punti' in col_low and 'sub' in col_low):
-                pts_lost_col = col
-            if 'матчи' in col_low or 'matches' in col_low:
+            if 'сет' in col_low and ('выигр' in col_low or 'vinti' in col_low):
+                sets_col = col
+            if 'мяч' in col_low or 'punti' in col_low or 'очк' in col_low:
+                points_col = col
+            if 'матч' in col_low or 'matches' in col_low:
                 matches_col = col
-        if team_col and sets_won_col and sets_lost_col and pts_won_col and pts_lost_col:
-            rows = []
-            for _, row in df_raw.iterrows():
-                team = str(row[team_col]).strip()
-                if not team or team == 'nan':
-                    continue
+        if team_col is None or sets_col is None or points_col is None:
+            return None
+        rows = []
+        for _, row in df_raw.iterrows():
+            team = str(row[team_col]).strip()
+            if not team or team == 'nan':
+                continue
+            sets_str = str(row[sets_col]).strip()
+            w, l = parse_sets(sets_str)
+            if w == 0 and l == 0:
+                continue
+            points_str = str(row[points_col]).strip()
+            pw, pl = parse_sets(points_str)
+            matches = None
+            if matches_col:
                 try:
-                    sets_w = int(float(str(row[sets_won_col]).replace(',', '.')))
-                    sets_l = int(float(str(row[sets_lost_col]).replace(',', '.')))
-                    pts_w = int(float(str(row[pts_won_col]).replace('.', '').replace(',', '.')))
-                    pts_l = int(float(str(row[pts_lost_col]).replace('.', '').replace(',', '.')))
-                    matches = None
-                    if matches_col:
-                        try:
-                            matches = int(float(str(row[matches_col]).replace(',', '.')))
-                        except:
-                            pass
-                    rows.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': matches})
+                    matches = int(float(str(row[matches_col])))
                 except:
-                    continue
-            if rows:
-                return pd.DataFrame(rows)
+                    pass
+            rows.append({'Команда': team, 'Сеты': f"{w}:{l}", 'Мячи': f"{pw}:{pl}", 'Матчи': matches})
+        if rows:
+            return pd.DataFrame(rows)
         return None
     else:
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
+    def parse_pair(s):
+        if ':' not in s:
+            return 0, 0
+        parts = s.split(':')
+        if len(parts) != 2:
+            return 0, 0
+        try:
+            return int(float(parts[0])), int(float(parts[1]))
+        except:
+            return 0, 0
+
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -729,33 +711,33 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
                 sets = parts[1].strip()
                 points = parts[2].strip()
                 matches = None
-                if len(parts) >= 4:
-                    try:
-                        matches = int(parts[3].strip())
-                    except:
-                        pass
-                if ':' in sets and ':' in points:
-                    data.append({'Команда': team, 'Сеты': sets, 'Мячи': points, 'Матчи': matches})
+                if len(parts) >= 4 and parts[3].strip().isdigit():
+                    matches = int(parts[3].strip())
+                w, l = parse_pair(sets)
+                pw, pl = parse_pair(points)
+                if w == 0 and l == 0:
+                    continue
+                data.append({'Команда': team, 'Сеты': f"{w}:{l}", 'Мячи': f"{pw}:{pl}", 'Матчи': matches})
             continue
         tokens = re.split(r'\s+', line)
-        if len(tokens) < 5:
-            continue
-        team_parts = []
         numbers = []
-        for token in tokens:
-            if re.match(r'^[\d\.,]+$', token):
-                numbers.append(token)
+        team_parts = []
+        for tok in tokens:
+            if re.match(r'^[\d\.,]+$', tok):
+                numbers.append(tok)
             else:
-                team_parts.append(token)
-        if not team_parts or len(numbers) < 4:
+                team_parts.append(tok)
+        if len(numbers) < 4:
             continue
-        team = ' '.join(team_parts)
+        team = ' '.join(team_parts).strip()
+        if not team:
+            continue
         try:
-            sets_w = int(float(numbers[0]))
-            sets_l = int(float(numbers[1]))
-            pts_w = int(float(numbers[2].replace('.', '').replace(',', '.')))
-            pts_l = int(float(numbers[3].replace('.', '').replace(',', '.')))
-            data.append({'Команда': team, 'Сеты': f"{sets_w}:{sets_l}", 'Мячи': f"{pts_w}:{pts_l}", 'Матчи': None})
+            w = int(float(numbers[0]))
+            l = int(float(numbers[1]))
+            pw = int(float(numbers[2].replace('.', '').replace(',', '.')))
+            pl = int(float(numbers[3].replace('.', '').replace(',', '.')))
+            data.append({'Команда': team, 'Сеты': f"{w}:{l}", 'Мячи': f"{pw}:{pl}", 'Матчи': None})
         except:
             continue
     if data:
@@ -905,7 +887,7 @@ with st.sidebar:
                     if 'Команда' in df.columns and 'Сеты' in df.columns and 'Мячи' in df.columns:
                         st.session_state.user_tables[name] = df
                 st.success(f"Импортировано {len(imported)} таблиц")
-                st.rerun()
+                # st.rerun() - убрали лишний rerun
             except Exception as e:
                 st.error(f"Ошибка импорта: {e}")
     with col_clear:
@@ -1109,6 +1091,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             help="Можно изменить вручную."
         )
         neutral_field = st.checkbox("Нейтральное поле", help="Для малых выборок (2-3 игры) формулы одинаковы")
+        match_format = st.radio("Формат матча", ["до 3 побед (best-of-5)", "до 2 побед (best-of-3)"], index=0)
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1153,16 +1136,24 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h")
             date_h2h = st.text_input("Дата", placeholder="01.01.2026")
             if st.button("Добавить", key="add_h2h"):
-                key = (hh, ha)
-                st.session_state.h2h_manual.setdefault(key, []).append({
-                    'Дата': date_h2h or "(нет даты)",
-                    'Хозяева': hh,
-                    'Гости': ha,
-                    'Счёт по сетам': sets_h2h,
-                    'Фора по очкам': pts_h2h
-                })
-                st.success("Добавлено")
-                st.rerun()
+                # Валидация счёта
+                if ':' not in sets_h2h:
+                    st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
+                else:
+                    parts = sets_h2h.split(':')
+                    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                        st.error("Счёт должен состоять из двух чисел, например 3:1")
+                    else:
+                        key = (hh, ha)
+                        st.session_state.h2h_manual.setdefault(key, []).append({
+                            'Дата': date_h2h or "(нет даты)",
+                            'Хозяева': hh,
+                            'Гости': ha,
+                            'Счёт по сетам': sets_h2h,
+                            'Фора по очкам': pts_h2h
+                        })
+                        st.success("Добавлено")
+                        st.rerun()
 
         key_pair = (home, away)
         rev_key = (away, home)
@@ -1190,11 +1181,16 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if home == away:
                 st.error("Выберите разные команды")
             else:
+                # Проверка наличия матчей для расчёта форы
+                if h_matches is None or a_matches is None:
+                    st.warning("Для расчёта форы по очкам необходимо указать количество сыгранных матчей для обеих команд. Прогноз по сетам будет рассчитан.")
+                
                 # Прогноз по сетам
                 p_home = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
                 p_away = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
-                prob_home_match = prob_win_match(p_home)
-                prob_away_match = prob_win_match(p_away)
+                best_of = 3 if match_format.startswith("до 2") else 5
+                prob_home_match = prob_win_match(p_home, best_of)
+                prob_away_match = prob_win_match(p_away, best_of)
                 total = prob_home_match + prob_away_match
                 prob_home_norm = prob_home_match / total
                 prob_away_norm = prob_away_match / total
@@ -1208,50 +1204,64 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 odds = (1 - margin) / fav_prob
                 st.subheader("📈 Прогноз по сетам")
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
-                st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
+                st.caption(f"Вероятность победы в матче через биномиальное распределение (best-of-{best_of}), нормализована.")
 
-                # Прогноз по очкам
-                raw_handicap = calculate_raw_handicap(
-                    h_sv, h_sp, h_bv, h_bp, h_matches,
-                    a_sv, a_sp, a_bv, a_bp, a_matches
-                )
-                min_matches = min(h_matches if h_matches else 999, a_matches if a_matches else 999)
-                if gender == "Мужчины":
-                    if min_matches == 2:
-                        adjusted = adjust_handicap_men_2(raw_handicap)
-                        formula = "мужской (2 игры)"
-                    elif min_matches == 3:
-                        adjusted = adjust_handicap_men_3(raw_handicap)
-                        formula = "мужской (3 игры)"
-                    else:
-                        if neutral_field:
-                            adjusted = adjust_handicap_men_neutral(raw_handicap)
-                            formula = "мужской нейтральной (4+ матчей)"
+                # Прогноз по очкам (только если есть матчи)
+                if h_matches is not None and a_matches is not None:
+                    raw_handicap = calculate_raw_handicap(
+                        h_sv, h_sp, h_bv, h_bp, h_matches,
+                        a_sv, a_sp, a_bv, a_bp, a_matches
+                    )
+                    min_matches = min(h_matches, a_matches)
+                    if gender == "Мужчины":
+                        if min_matches == 2:
+                            adjusted = adjust_handicap_men_2(raw_handicap)
+                            formula = "мужской (2 игры)"
+                        elif min_matches == 3:
+                            adjusted = adjust_handicap_men_3(raw_handicap)
+                            formula = "мужской (3 игры)"
                         else:
-                            adjusted = adjust_handicap_men_home(raw_handicap)
-                            formula = "мужской домашней (4+ матчей)"
-                else:
-                    if min_matches == 2:
-                        adjusted = adjust_handicap_women_2(raw_handicap)
-                        formula = "женской (2 игры)"
-                    elif min_matches == 3:
-                        adjusted = adjust_handicap_women_3(raw_handicap)
-                        formula = "женской (3 игры)"
+                            if neutral_field:
+                                adjusted = adjust_handicap_men_neutral(raw_handicap)
+                                formula = "мужской нейтральной (4+ матчей)"
+                            else:
+                                adjusted = adjust_handicap_men_home(raw_handicap)
+                                formula = "мужской домашней (4+ матчей)"
                     else:
-                        if neutral_field:
-                            adjusted = adjust_handicap_women_neutral(raw_handicap)
-                            formula = "женской нейтральной (4+ матчей)"
+                        if min_matches == 2:
+                            adjusted = adjust_handicap_women_2(raw_handicap)
+                            formula = "женской (2 игры)"
+                        elif min_matches == 3:
+                            adjusted = adjust_handicap_women_3(raw_handicap)
+                            formula = "женской (3 игры)"
                         else:
-                            adjusted = adjust_handicap_women_home(raw_handicap)
-                            formula = "женской домашней (4+ матчей)"
-                st.subheader("⚖️ Прогноз по очкам (скорректированный)")
-                if adjusted > 0:
-                    st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
-                elif adjusted < 0:
-                    st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
+                            if neutral_field:
+                                adjusted = adjust_handicap_women_neutral(raw_handicap)
+                                formula = "женской нейтральной (4+ матчей)"
+                            else:
+                                adjusted = adjust_handicap_women_home(raw_handicap)
+                                formula = "женской домашней (4+ матчей)"
+                    
+                    # Опциональный учёт личных встреч
+                    use_h2h = st.checkbox("Учесть личные встречи (корректировка форы)", value=False)
+                    if use_h2h and current_h2h:
+                        h2h_forces = [m['Фора по очкам'] for m in current_h2h if m['Хозяева'] == home and m['Гости'] == away]
+                        if h2h_forces:
+                            avg_h2h = sum(h2h_forces) / len(h2h_forces)
+                            blend = 0.7
+                            adjusted = adjusted * blend + avg_h2h * (1 - blend)
+                            st.caption(f"📊 С учётом {len(h2h_forces)} личных встреч (средняя фора {avg_h2h:.1f})")
+                    
+                    st.subheader("⚖️ Прогноз по очкам (скорректированный)")
+                    if adjusted > 0:
+                        st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
+                    elif adjusted < 0:
+                        st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
+                    else:
+                        st.info("Фора близка к нулю")
+                    st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {formula}")
                 else:
-                    st.info("Фора близка к нулю")
-                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {formula}")
+                    st.info("Для расчёта форы по очкам укажите количество матчей для обеих команд (колонка 'Матчи' в таблице).")
 else:
     if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
         st.warning("Активная таблица пуста")
