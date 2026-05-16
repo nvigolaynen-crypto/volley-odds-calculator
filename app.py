@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
-# ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
+# ==================== КОРРЕКТИРОВКИ ФОРЫ (все функции) ====================
 
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
@@ -560,19 +560,41 @@ def prob_win_match(p: float) -> float:
     q = 1 - p
     return 10 * p**3 * q**2 + 5 * p**4 * q + p**5
 
-def calculate_raw_handicap(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
-                           a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
+def calculate_raw_handicap_without_h2h(h_sets_w, h_sets_l, h_pts_w, h_pts_l, h_matches,
+                                      a_sets_w, a_sets_l, a_pts_w, a_pts_l, a_matches):
     if h_matches is None or h_matches <= 0:
         h_matches = (h_sets_w + h_sets_l) // 3 if (h_sets_w + h_sets_l) > 0 else 1
     if a_matches is None or a_matches <= 0:
         a_matches = (a_sets_w + a_sets_l) // 3 if (a_sets_w + a_sets_l) > 0 else 1
-    home_avg_scored = h_pts_w / h_matches
-    home_avg_conceded = h_pts_l / h_matches
-    away_avg_scored = a_pts_w / a_matches
-    away_avg_conceded = a_pts_l / a_matches
-    expected_home = (home_avg_scored + away_avg_conceded) / 2
-    expected_away = (away_avg_scored + home_avg_conceded) / 2
-    return expected_home - expected_away
+    home_avg_diff = (h_pts_w - h_pts_l) / h_matches
+    away_avg_diff = (a_pts_w - a_pts_l) / a_matches
+    return home_avg_diff - away_avg_diff
+
+def calculate_raw_handicap_with_h2h(h_data, a_data, h2h_list):
+    h_matches_orig = h_data['matches'] if h_data['matches'] is not None else (h_data['sets_w'] + h_data['sets_l']) // 3
+    a_matches_orig = a_data['matches'] if a_data['matches'] is not None else (a_data['sets_w'] + a_data['sets_l']) // 3
+    if h_matches_orig <= 0:
+        h_matches_orig = 1
+    if a_matches_orig <= 0:
+        a_matches_orig = 1
+    sum_diff = 0
+    for enc in h2h_list:
+        if enc['home'] == h_data['name']:
+            sum_diff += enc['pts_diff']
+        else:
+            sum_diff += -enc['pts_diff']
+    count = len(h2h_list)
+    h_matches_adj = h_matches_orig - count
+    a_matches_adj = a_matches_orig - count
+    if h_matches_adj <= 0:
+        h_matches_adj = 1
+    if a_matches_adj <= 0:
+        a_matches_adj = 1
+    h_pts_diff_adj = (h_data['pts_w'] - h_data['pts_l']) - sum_diff
+    a_pts_diff_adj = (a_data['pts_w'] - a_data['pts_l']) + sum_diff
+    avg_h = h_pts_diff_adj / h_matches_adj
+    avg_a = a_pts_diff_adj / a_matches_adj
+    return avg_h - avg_a, h_matches_adj, a_matches_adj
 
 def detect_gender_by_url(url: str) -> str:
     url_lower = url.lower()
@@ -585,6 +607,9 @@ def detect_gender_by_url(url: str) -> str:
 # ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
 
 def parse_table_to_df(data_source, file_type=None):
+    """
+    Универсальный парсер для загруженных файлов CSV/Excel.
+    """
     if file_type == 'csv':
         content = data_source.getvalue().decode('utf-8')
         lines = content.splitlines()
@@ -716,6 +741,11 @@ def parse_table_to_df(data_source, file_type=None):
         return parse_text_to_df(data_source)
 
 def parse_text_to_df(text: str) -> pd.DataFrame:
+    """
+    Парсит текстовую таблицу в формате:
+    - Название;Сеты;Мячи (или Название;Сеты;Мячи;Матчи)
+    - или через пробелы/табуляции (название, затем 4 числа: сеты_в, сеты_п, очки_в, очки_п)
+    """
     lines = text.strip().split('\n')
     data = []
     for line in lines:
@@ -762,72 +792,6 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         return pd.DataFrame(data)
     return None
 
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ DATA PROJECT ====================
-
-def extract_team_data_from_dataproject_table(table_html: str) -> dict:
-    soup = BeautifulSoup(table_html, 'html.parser')
-    rows = soup.find_all('tr', class_=re.compile(r'RG_Standing_Main_AltBackColor'))
-    if not rows:
-        rows = soup.find_all('tr')
-        rows = [row for row in rows if row.find('span', id=re.compile(r'TeamName'))]
-    teams = {}
-    for row in rows:
-        team_span = row.find('span', id=re.compile(r'TeamName'))
-        if not team_span:
-            continue
-        team = team_span.get_text(strip=True)
-        if not team:
-            continue
-        matches_span = row.find('span', id=re.compile(r'MatchesPlayed'))
-        matches = int(matches_span.get_text(strip=True)) if matches_span and matches_span.get_text(strip=True).isdigit() else None
-        sets_won_span = row.find('span', id=re.compile(r'SetsWon'))
-        sets_lost_span = row.find('span', id=re.compile(r'SetsLost'))
-        sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
-        sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
-        pts_won_span = row.find('span', id=re.compile(r'PuntiFatti'))
-        pts_lost_span = row.find('span', id=re.compile(r'PuntiSubiti'))
-        pts_won = int(pts_won_span.get_text(strip=True)) if pts_won_span else 0
-        pts_lost = int(pts_lost_span.get_text(strip=True)) if pts_lost_span else 0
-        teams[team] = {
-            'sets_w': sets_won,
-            'sets_l': sets_lost,
-            'pts_w': pts_won,
-            'pts_l': pts_lost,
-            'matches': matches
-        }
-    return teams
-
-def extract_all_phases_from_dataproject_page(html: str) -> dict:
-    soup = BeautifulSoup(html, 'html.parser')
-    phase_divs = soup.find_all('div', class_='rmpView')
-    if not phase_divs:
-        table = soup.find('table', class_='rgMasterTable')
-        if table:
-            return extract_team_data_from_dataproject_table(str(table))
-        return {}
-    combined = {}
-    for phase_div in phase_divs:
-        table = phase_div.find('table', class_='rgMasterTable')
-        if not table:
-            continue
-        teams_data = extract_team_data_from_dataproject_table(str(table))
-        for team, stats in teams_data.items():
-            if team not in combined:
-                combined[team] = {
-                    'sets_w': 0, 'sets_l': 0,
-                    'pts_w': 0, 'pts_l': 0,
-                    'matches': 0 if stats['matches'] is not None else None
-                }
-            combined[team]['sets_w'] += stats['sets_w']
-            combined[team]['sets_l'] += stats['sets_l']
-            combined[team]['pts_w'] += stats['pts_w']
-            combined[team]['pts_l'] += stats['pts_l']
-            if stats['matches'] is not None:
-                if combined[team]['matches'] is None:
-                    combined[team]['matches'] = 0
-                combined[team]['matches'] += stats['matches']
-    return combined
-
 # ==================== ПАРСЕРЫ URL ====================
 
 def get_parser_by_url(url: str):
@@ -842,7 +806,6 @@ def load_teams_from_url(url, combine_phases):
     parser = get_parser_by_url(url)
     if parser is None:
         return None, "URL не поддерживается"
-    
     if combine_phases and "dataproject.com" in url:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         try:
@@ -850,16 +813,53 @@ def load_teams_from_url(url, combine_phases):
             resp.raise_for_status()
         except Exception as e:
             return None, f"Ошибка загрузки: {e}"
-        combined_data = extract_all_phases_from_dataproject_page(resp.text)
-        if not combined_data:
-            return None, "Не удалось найти данные на странице"
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        phase_divs = soup.find_all('div', class_='rmpView')
+        if not phase_divs:
+            # Если нет вкладок, пробуем найти основную таблицу
+            table = soup.find('table', class_='rgMasterTable')
+            if table:
+                phase_divs = [table]
+        combined = {}
+        for phase in phase_divs:
+            rows = phase.find_all('tr', class_=re.compile(r'RG_Standing_Main_AltBackColor'))
+            if not rows:
+                rows = phase.find_all('tr')
+                rows = [row for row in rows if row.find('span', id=re.compile(r'TeamName'))]
+            for row in rows:
+                team_span = row.find('span', id=re.compile(r'TeamName'))
+                if not team_span:
+                    continue
+                team = team_span.get_text(strip=True)
+                matches_span = row.find('span', id=re.compile(r'MatchesPlayed'))
+                matches = int(matches_span.get_text(strip=True)) if matches_span and matches_span.get_text(strip=True).isdigit() else None
+                sets_won_span = row.find('span', id=re.compile(r'SetsWon'))
+                sets_lost_span = row.find('span', id=re.compile(r'SetsLost'))
+                sets_won = int(sets_won_span.get_text(strip=True)) if sets_won_span else 0
+                sets_lost = int(sets_lost_span.get_text(strip=True)) if sets_lost_span else 0
+                pts_won_span = row.find('span', id=re.compile(r'PuntiFatti'))
+                pts_lost_span = row.find('span', id=re.compile(r'PuntiSubiti'))
+                pts_won = int(pts_won_span.get_text(strip=True)) if pts_won_span else 0
+                pts_lost = int(pts_lost_span.get_text(strip=True)) if pts_lost_span else 0
+                if team not in combined:
+                    combined[team] = {'sets_w':0, 'sets_l':0, 'pts_w':0, 'pts_l':0, 'matches':0 if matches is not None else None}
+                combined[team]['sets_w'] += sets_won
+                combined[team]['sets_l'] += sets_lost
+                combined[team]['pts_w'] += pts_won
+                combined[team]['pts_l'] += pts_lost
+                if matches is not None:
+                    if combined[team]['matches'] is None:
+                        combined[team]['matches'] = 0
+                    combined[team]['matches'] += matches
+        if not combined:
+            return None, "Не удалось извлечь данные со страницы"
         rows = []
-        for team, stats in combined_data.items():
+        for team, stats in combined.items():
             rows.append({
                 'Команда': team,
                 'Сеты': f"{stats['sets_w']}:{stats['sets_l']}",
                 'Мячи': f"{stats['pts_w']}:{stats['pts_l']}",
-                'Матчи': stats['matches'] if stats['matches'] is not None else None
+                'Матчи': stats['matches']
             })
         return pd.DataFrame(rows), None
     else:
@@ -1019,7 +1019,7 @@ if st.session_state.active_source == "auto":
         if "dataproject.com" in url:
             combine = st.checkbox("Складывать все этапы (только для Data Project)", value=False)
             if combine:
-                st.caption("Будут автоматически найдены и просуммированы все этапы на странице (1ª Fase, плей-офф и т.д.).")
+                st.caption("Будут автоматически найдены и просуммированы все этапы на странице (1ª Fase, плей-офф и т.д.)")
         load_clicked = st.form_submit_button("📥 Загрузить данные")
         if load_clicked and url:
             with st.spinner("Загрузка..."):
@@ -1109,6 +1109,8 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             help="Можно изменить вручную."
         )
         neutral_field = st.checkbox("Нейтральное поле", help="Для малых выборок (2-3 игры) формулы одинаковы")
+        subtract_h2h = st.checkbox("Вычитать личные встречи из статистики", value=False,
+                                   help="Если включено, то из общей статистики команд будут вычтены данные личных встреч (разница очков и количество матчей).")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1121,9 +1123,10 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             h_sv, h_sp = map(int, h_sets_str.split(':'))
             h_bv, h_bp = map(int, h_points_str.split(':'))
             h_matches = home_row['Матчи'] if 'Матчи' in home_row and pd.notna(home_row['Матчи']) else None
+            if h_matches is None or h_matches <= 0:
+                h_matches = (h_sv + h_sp) // 3 if (h_sv + h_sp) > 0 else 1
             p_home_set = h_sv / (h_sv + h_sp) if (h_sv + h_sp) > 0 else 0.5
-            matches_info = f" | Матчей: {h_matches}" if h_matches else ""
-            st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%}{matches_info}")
+            st.caption(f"Сеты: {h_sv}:{h_sp} | Мячи: {h_bv}:{h_bp} | % сетов: {p_home_set:.1%} | Матчей: {h_matches}")
         with col2:
             away_index = teams.index(st.session_state.away_team) if st.session_state.away_team in teams else 1 if len(teams)>1 else 0
             away = st.selectbox("Гостевая", teams, index=away_index, key="away_sel")
@@ -1134,38 +1137,57 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             a_sv, a_sp = map(int, a_sets_str.split(':'))
             a_bv, a_bp = map(int, a_points_str.split(':'))
             a_matches = away_row['Матчи'] if 'Матчи' in away_row and pd.notna(away_row['Матчи']) else None
+            if a_matches is None or a_matches <= 0:
+                a_matches = (a_sv + a_sp) // 3 if (a_sv + a_sp) > 0 else 1
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
-            matches_info = f" | Матчей: {a_matches}" if a_matches else ""
-            st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}{matches_info}")
+            st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%} | Матчей: {a_matches}")
 
-        # ----- Личные встречи (ручной ввод) -----
+        # Сбор личных встреч между home и away
+        key_pair = (home, away)
+        rev_key = (away, home)
+        h2h_encounters = []
+        for m in st.session_state.h2h_manual.get(key_pair, []):
+            h2h_encounters.append({
+                'home': m['Хозяева'],
+                'away': m['Гости'],
+                'pts_diff': m['Фора по очкам']
+            })
+        for m in st.session_state.h2h_manual.get(rev_key, []):
+            h2h_encounters.append({
+                'home': m['Хозяева'],
+                'away': m['Гости'],
+                'pts_diff': m['Фора по очкам']
+            })
+
+        # ----- Блок добавления личных встреч -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
         with st.expander("➕ Добавить личную встречу"):
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
-            with col_b:
-                ha = st.selectbox("Гости", all_teams, key="h2h_a")
-            with col_c:
-                sets_h2h = st.text_input("Счёт по сетам", placeholder="3:1")
-            pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h")
-            date_h2h = st.text_input("Дата", placeholder="01.01.2026")
-            if st.button("Добавить", key="add_h2h"):
-                key = (hh, ha)
-                st.session_state.h2h_manual.setdefault(key, []).append({
-                    'Дата': date_h2h or "(нет даты)",
-                    'Хозяева': hh,
-                    'Гости': ha,
-                    'Счёт по сетам': sets_h2h,
-                    'Фора по очкам': pts_h2h
-                })
-                st.success("Добавлено")
-                st.rerun()
+            with st.form(key="add_h2h_form"):
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
+                with col_b:
+                    ha = st.selectbox("Гости", all_teams, key="h2h_a")
+                with col_c:
+                    sets_h2h = st.text_input("Счёт по сетам", placeholder="3:1")
+                pts_h2h = st.number_input("Фора по очкам (+, если хозяева выиграли)", step=0.5, key="pts_h2h")
+                date_h2h = st.text_input("Дата", placeholder="01.01.2026")
+                submitted = st.form_submit_button("Добавить")
+                if submitted:
+                    key = (hh, ha)
+                    st.session_state.h2h_manual.setdefault(key, []).append({
+                        'Дата': date_h2h or "(нет даты)",
+                        'Хозяева': hh,
+                        'Гости': ha,
+                        'Счёт по сетам': sets_h2h,
+                        'Фора по очкам': pts_h2h
+                    })
+                    st.success("Добавлено")
+                    st.rerun()
 
-        key_pair = (home, away)
-        rev_key = (away, home)
+        # Отображение истории встреч
         current_h2h = []
         for m in st.session_state.h2h_manual.get(key_pair, []):
             current_h2h.append(m)
@@ -1210,12 +1232,31 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.write(f"**Победа {favorite} – коэффициент {odds:.2f}**")
                 st.caption("Вероятность победы в матче через биномиальное распределение (best of 5), нормализована.")
 
-                # Прогноз по очкам
-                raw_handicap = calculate_raw_handicap(
-                    h_sv, h_sp, h_bv, h_bp, h_matches,
-                    a_sv, a_sp, a_bv, a_bp, a_matches
-                )
-                min_matches = min(h_matches if h_matches else 999, a_matches if a_matches else 999)
+                # ----- Прогноз по очкам с учётом чекбокса вычитания H2H -----
+                home_data = {
+                    'name': home,
+                    'sets_w': h_sv, 'sets_l': h_sp,
+                    'pts_w': h_bv, 'pts_l': h_bp,
+                    'matches': h_matches
+                }
+                away_data = {
+                    'name': away,
+                    'sets_w': a_sv, 'sets_l': a_sp,
+                    'pts_w': a_bv, 'pts_l': a_bp,
+                    'matches': a_matches
+                }
+                if subtract_h2h and h2h_encounters:
+                    raw_handicap, h_adj_m, a_adj_m = calculate_raw_handicap_with_h2h(home_data, away_data, h2h_encounters)
+                    matches_info = f"Матчей после вычета H2H: хозяева – {h_adj_m}, гости – {a_adj_m}"
+                else:
+                    raw_handicap = calculate_raw_handicap_without_h2h(
+                        h_sv, h_sp, h_bv, h_bp, h_matches,
+                        a_sv, a_sp, a_bv, a_bp, a_matches
+                    )
+                    h_adj_m, a_adj_m = h_matches, a_matches
+                    matches_info = f"Исходное количество матчей: хозяева – {h_adj_m}, гости – {a_adj_m}"
+                
+                min_matches = min(h_adj_m, a_adj_m)
                 if gender == "Мужчины":
                     if min_matches == 2:
                         adjusted = adjust_handicap_men_2(raw_handicap)
@@ -1244,6 +1285,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         else:
                             adjusted = adjust_handicap_women_home(raw_handicap)
                             formula = "женской домашней (4+ матчей)"
+                
                 st.subheader("⚖️ Прогноз по очкам (скорректированный)")
                 if adjusted > 0:
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу хозяев)")
@@ -1251,7 +1293,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     st.success(f"Фора на матч: {adjusted:.1f} (в пользу гостей)")
                 else:
                     st.info("Фора близка к нулю")
-                st.caption(f"Исходная фора: {raw_handicap:.1f} → скорректировано по {formula}")
+                st.caption(f"Исходная фора (сырая): {raw_handicap:.1f}\n{matches_info}\nСкорректировано по {formula}")
 else:
     if st.session_state.df_teams is not None and st.session_state.df_teams.empty:
         st.warning("Активная таблица пуста")
