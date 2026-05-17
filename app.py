@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from parsers.russia_volleyru import RussiaVolleyRuParser
 from parsers.dataproject import DataProjectParser
 
-# ==================== КОРРЕКТИРОВКИ ФОРЫ (НЕ ТРОГАЕМ) ====================
+# ==================== КОРРЕКТИРОВКИ ФОРЫ ====================
 
 def adjust_handicap_men_home(handicap: float) -> float:
     if handicap <= -43:
@@ -587,9 +587,21 @@ def detect_gender_by_url(url: str) -> str:
 
 def parse_table_to_df(data_source, file_type=None):
     """
-    Парсит таблицу из CSV или Excel.
-    Поддерживает итальянские многострочные заголовки.
+    Парсит CSV или Excel, автоматически определяя колонки по ключевым словам.
+    Поддерживает итальянские, польские, турецкие форматы.
+    Для турецкого: O - матчи, A - выигранные сеты, V - проигранные сеты, ASP - выигранные очки, VSP - проигранные очки.
     """
+    def to_int(val):
+        if pd.isna(val):
+            return None
+        s = str(val).strip()
+        s = s.replace('.', '')
+        s = s.replace(',', '.')
+        try:
+            return int(float(s))
+        except:
+            return None
+
     def parse_sets(sets_str):
         if not isinstance(sets_str, str):
             sets_str = str(sets_str)
@@ -605,177 +617,176 @@ def parse_table_to_df(data_source, file_type=None):
         except:
             return 0, 0
 
-    # --- CSV с итальянским форматом ---
+    # --- CSV ---
     if file_type == 'csv':
-        # Пытаемся прочитать как обычный CSV с разделителем-запятой
-        try:
-            # Читаем все строки как текст
-            content = data_source.getvalue().decode('utf-8')
-            lines = content.splitlines()
-            # Ищем первую строку, которая начинается с цифры и содержит запятые
-            data_lines = []
-            for line in lines:
-                line = line.strip()
-                if line and re.match(r'^\d+\s+', line):
-                    data_lines.append(line)
-            if not data_lines:
-                return None
-            # Разбираем каждую строку вручную
-            rows = []
-            for line in data_lines:
-                parts = line.split(',')
-                if len(parts) < 16:
-                    continue
-                # Извлекаем название команды (первая ячейка, удаляем номер в начале)
-                raw_team = parts[0].strip()
-                # Удаляем номер (цифры и точку/пробел в начале)
-                team = re.sub(r'^\d+\s+', '', raw_team).strip()
-                if not team:
-                    continue
-                # Количество матчей - колонка 3 (индекс 3) - Giocate
-                matches = None
-                try:
-                    matches = int(float(parts[3].strip()))
-                except:
-                    pass
-                # Сеты - колонки 12 и 13 (Vinti, Persi)
-                try:
-                    sets_w = int(float(parts[12].strip()))
-                    sets_l = int(float(parts[13].strip()))
-                except:
-                    continue
-                # Очки - колонки 14 и 15 (Fatti, Subiti) - но там точки как разделители тысяч
-                # Например "1.804" -> 1804
-                try:
-                    pts_w_str = parts[14].strip().replace('.', '')
-                    pts_l_str = parts[15].strip().replace('.', '')
-                    pts_w = int(float(pts_w_str))
-                    pts_l = int(float(pts_l_str))
-                except:
-                    continue
-                rows.append({
-                    'Команда': team,
-                    'Сеты': f"{sets_w}:{sets_l}",
-                    'Мячи': f"{pts_w}:{pts_l}",
-                    'Матчи': matches
-                })
-            if rows:
-                return pd.DataFrame(rows)
-        except Exception as e:
-            st.error(f"Ошибка при разборе CSV: {e}")
-        # Если ручной разбор не удался, пробуем стандартный pandas с пропуском первых строк
-        try:
-            df = pd.read_csv(data_source, encoding='utf-8', skiprows=3, on_bad_lines='skip')
-            # Попробуем найти нужные колонки
-            team_col = None
-            sets_w_col = None
-            sets_l_col = None
-            pts_w_col = None
-            pts_l_col = None
-            matches_col = None
-            for col in df.columns:
-                col_low = str(col).lower()
-                if 'команда' in col_low or 'squadra' in col_low or 'team' in col_low:
-                    team_col = col
-                if 'vinti' in col_low and 'set' not in col_low:
-                    # может быть 'Vinti' - сеты выигранные
-                    sets_w_col = col
-                if 'persi' in col_low and 'set' not in col_low:
-                    sets_l_col = col
-                if 'fatti' in col_low:
-                    pts_w_col = col
-                if 'subiti' in col_low:
-                    pts_l_col = col
-                if 'giocate' in col_low or 'partite' in col_low or 'matches' in col_low:
-                    matches_col = col
-            if team_col is not None and sets_w_col is not None and sets_l_col is not None:
-                rows = []
-                for _, row in df.iterrows():
-                    team = str(row[team_col]).strip()
-                    if not team or team == 'nan':
-                        continue
-                    try:
-                        sets_w = int(float(row[sets_w_col]))
-                        sets_l = int(float(row[sets_l_col]))
-                        pts_w = int(float(str(row[pts_w_col]).replace('.', ''))) if pts_w_col else 0
-                        pts_l = int(float(str(row[pts_l_col]).replace('.', ''))) if pts_l_col else 0
-                        matches = int(float(row[matches_col])) if matches_col else None
-                    except:
-                        continue
-                    rows.append({
-                        'Команда': team,
-                        'Сеты': f"{sets_w}:{sets_l}",
-                        'Мячи': f"{pts_w}:{pts_l}",
-                        'Матчи': matches
-                    })
-                if rows:
-                    return pd.DataFrame(rows)
-        except:
-            pass
+        content = data_source.getvalue().decode('utf-8')
+        lines = content.splitlines()
+        delimiter = None
+        for line in lines:
+            if line.strip():
+                delimiter = ';' if ';' in line else ','
+                break
+        if delimiter is None:
+            return None
+
+        data_lines = [line for line in lines if line.strip() and not line.startswith('"')]
+        keywords = {
+            'matches': ['матч', 'matches', 'giocate', 'partite', 'mecze', 'g', 'o', 'rozegr'],
+            'sets_w': ['sv', 'set vinti', 'sets wygr', 'v', 'set_w', 'выигр', 'wygr', 'a'],
+            'sets_l': ['sp', 'set persi', 'sets przegr', 'p', 'set_l', 'проигр', 'przegr', 'v'],
+            'pts_w': ['pf', 'punti fatti', 'punkty wygr', 'pts for', 'fatti', 'asp', 'punkty'],
+            'pts_l': ['ps', 'punti subiti', 'punkty przegr', 'pts against', 'subiti', 'vsp']
+        }
+        header_idx = None
+        for i, line in enumerate(data_lines):
+            line_low = line.lower()
+            has_matches = any(k in line_low for k in keywords['matches'])
+            has_sets_w = any(k in line_low for k in keywords['sets_w'])
+            has_sets_l = any(k in line_low for k in keywords['sets_l'])
+            if has_matches and has_sets_w and has_sets_l:
+                header_idx = i
+                break
+        if header_idx is None:
+            header_idx = 0
+
+        header_parts = data_lines[header_idx].split(delimiter)
+        header_parts = [p.strip('"').strip() for p in header_parts]
+        col_matches = col_sets_w = col_sets_l = col_pts_w = col_pts_l = None
+        for idx, col in enumerate(header_parts):
+            col_low = col.lower()
+            if col_matches is None and any(k in col_low for k in keywords['matches']):
+                col_matches = idx
+            if col_sets_w is None and any(k in col_low for k in keywords['sets_w']):
+                col_sets_w = idx
+            if col_sets_l is None and any(k in col_low for k in keywords['sets_l']):
+                col_sets_l = idx
+            if col_pts_w is None and any(k in col_low for k in keywords['pts_w']):
+                col_pts_w = idx
+            if col_pts_l is None and any(k in col_low for k in keywords['pts_l']):
+                col_pts_l = idx
+
+        # Турецкие колонки (A, V, O, ASP, VSP) - точное совпадение по заглавным
+        if col_sets_w is None or col_sets_l is None:
+            for idx, col in enumerate(header_parts):
+                col_up = col.strip().upper()
+                if col_up == 'A':
+                    col_sets_w = idx
+                if col_up == 'V':
+                    col_sets_l = idx
+                if col_up == 'O':
+                    col_matches = idx
+                if col_up == 'ASP':
+                    col_pts_w = idx
+                if col_up == 'VSP':
+                    col_pts_l = idx
+
+        if col_matches is None or col_sets_w is None or col_sets_l is None:
+            return None
+
+        rows = []
+        for line in data_lines[header_idx+1:]:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(delimiter)
+            parts = [p.strip('"').strip() for p in parts]
+            if len(parts) <= max(col_matches, col_sets_w, col_sets_l):
+                continue
+            team = parts[0].strip()
+            if not team:
+                continue
+            team = re.sub(r'^\d+\s+', '', team)
+            matches = to_int(parts[col_matches]) if col_matches < len(parts) else None
+            sets_w = to_int(parts[col_sets_w]) if col_sets_w < len(parts) else None
+            sets_l = to_int(parts[col_sets_l]) if col_sets_l < len(parts) else None
+            if sets_w is None or sets_l is None:
+                continue
+            pts_w = to_int(parts[col_pts_w]) if col_pts_w is not None and col_pts_w < len(parts) else 0
+            pts_l = to_int(parts[col_pts_l]) if col_pts_l is not None and col_pts_l < len(parts) else 0
+            if pts_w is None: pts_w = 0
+            if pts_l is None: pts_l = 0
+            rows.append({
+                'Команда': team,
+                'Сеты': f"{sets_w}:{sets_l}",
+                'Мячи': f"{pts_w}:{pts_l}",
+                'Матчи': matches
+            })
+        if rows:
+            return pd.DataFrame(rows)
         return None
 
     # --- Excel ---
     elif file_type == 'xlsx':
-        try:
-            df_raw = pd.read_excel(data_source, header=None)
-            keywords = {
-                'team': ['squadra', 'team', 'команда', 'nome'],
-                'sets_w': ['vinti', 'vint', 'выигр'],
-                'sets_l': ['persi', 'проигр'],
-                'pts_w': ['fatti', 'набрано'],
-                'pts_l': ['subiti', 'пропущ'],
-                'matches': ['giocate', 'partite', 'matches', 'матчи']
-            }
-            header_row_idx = None
-            for idx, row in df_raw.iterrows():
-                row_text = ' '.join(str(cell).lower() for cell in row if pd.notna(cell))
-                if any(k in row_text for k in keywords['team']) and any(k in row_text for k in keywords['sets_w']):
-                    header_row_idx = idx
-                    break
-            if header_row_idx is None:
-                header_row_idx = 0
-            header_row = df_raw.iloc[header_row_idx].fillna('').astype(str)
-            col_team = col_sets_w = col_sets_l = col_pts_w = col_pts_l = col_matches = None
-            for i, val in enumerate(header_row):
-                val_low = val.lower()
-                if col_team is None and any(k in val_low for k in keywords['team']):
-                    col_team = i
-                if col_sets_w is None and any(k in val_low for k in keywords['sets_w']):
-                    col_sets_w = i
-                if col_sets_l is None and any(k in val_low for k in keywords['sets_l']):
-                    col_sets_l = i
-                if col_pts_w is None and any(k in val_low for k in keywords['pts_w']):
-                    col_pts_w = i
-                if col_pts_l is None and any(k in val_low for k in keywords['pts_l']):
-                    col_pts_l = i
-                if col_matches is None and any(k in val_low for k in keywords['matches']):
-                    col_matches = i
-            if col_team is None or col_sets_w is None or col_sets_l is None:
-                return None
-            data_rows = df_raw.iloc[header_row_idx + 1:].copy()
-            rows = []
-            for _, row in data_rows.iterrows():
-                team = str(row.iloc[col_team]).strip()
-                if not team or team == 'nan':
-                    continue
-                try:
-                    sets_w = int(float(row.iloc[col_sets_w]))
-                    sets_l = int(float(row.iloc[col_sets_l]))
-                    pts_w = int(float(str(row.iloc[col_pts_w]).replace('.', ''))) if col_pts_w is not None else 0
-                    pts_l = int(float(str(row.iloc[col_pts_l]).replace('.', ''))) if col_pts_l is not None else 0
-                    matches = int(float(row.iloc[col_matches])) if col_matches is not None else None
-                except:
-                    continue
-                rows.append({
-                    'Команда': team,
-                    'Сеты': f"{sets_w}:{sets_l}",
-                    'Мячи': f"{pts_w}:{pts_l}",
-                    'Матчи': matches
-                })
-            if rows:
-                return pd.DataFrame(rows)
-        except Exception as e:
-            st.error(f"Ошибка при разборе Excel: {e}")
+        df_raw = pd.read_excel(data_source, header=None)
+        keywords = {
+            'matches': ['матч', 'matches', 'giocate', 'partite', 'mecze', 'g', 'o', 'rozegr'],
+            'sets_w': ['sv', 'set vinti', 'sets wygr', 'v', 'set_w', 'выигр', 'wygr', 'a'],
+            'sets_l': ['sp', 'set persi', 'sets przegr', 'p', 'set_l', 'проигр', 'przegr', 'v'],
+            'pts_w': ['pf', 'punti fatti', 'punkty wygr', 'pts for', 'fatti', 'asp', 'punkty'],
+            'pts_l': ['ps', 'punti subiti', 'punkty przegr', 'pts against', 'subiti', 'vsp']
+        }
+        header_idx = None
+        for idx, row in df_raw.iterrows():
+            row_text = ' '.join(str(cell).lower() for cell in row if pd.notna(cell))
+            if any(k in row_text for k in keywords['matches']) and any(k in row_text for k in keywords['sets_w']):
+                header_idx = idx
+                break
+        if header_idx is None:
+            header_idx = 0
+        header_row = df_raw.iloc[header_idx].fillna('').astype(str)
+        col_matches = col_sets_w = col_sets_l = col_pts_w = col_pts_l = None
+        for i, val in enumerate(header_row):
+            val_low = val.lower()
+            if col_matches is None and any(k in val_low for k in keywords['matches']):
+                col_matches = i
+            if col_sets_w is None and any(k in val_low for k in keywords['sets_w']):
+                col_sets_w = i
+            if col_sets_l is None and any(k in val_low for k in keywords['sets_l']):
+                col_sets_l = i
+            if col_pts_w is None and any(k in val_low for k in keywords['pts_w']):
+                col_pts_w = i
+            if col_pts_l is None and any(k in val_low for k in keywords['pts_l']):
+                col_pts_l = i
+        # Турецкие точные совпадения
+        for i, val in enumerate(header_row):
+            val_up = str(val).strip().upper()
+            if val_up == 'O':
+                col_matches = i
+            if val_up == 'A':
+                col_sets_w = i
+            if val_up == 'V':
+                col_sets_l = i
+            if val_up == 'ASP':
+                col_pts_w = i
+            if val_up == 'VSP':
+                col_pts_l = i
+
+        if col_matches is None or col_sets_w is None or col_sets_l is None:
+            return None
+        data_rows = df_raw.iloc[header_idx+1:].copy()
+        rows = []
+        for _, row in data_rows.iterrows():
+            team = str(row.iloc[0]).strip()
+            if not team or team == 'nan':
+                continue
+            team = re.sub(r'^\d+\s+', '', team)
+            matches = to_int(row.iloc[col_matches]) if col_matches < len(row) else None
+            sets_w = to_int(row.iloc[col_sets_w]) if col_sets_w < len(row) else None
+            sets_l = to_int(row.iloc[col_sets_l]) if col_sets_l < len(row) else None
+            if sets_w is None or sets_l is None:
+                continue
+            pts_w = to_int(row.iloc[col_pts_w]) if col_pts_w is not None and col_pts_w < len(row) else 0
+            pts_l = to_int(row.iloc[col_pts_l]) if col_pts_l is not None and col_pts_l < len(row) else 0
+            if pts_w is None: pts_w = 0
+            if pts_l is None: pts_l = 0
+            rows.append({
+                'Команда': team,
+                'Сеты': f"{sets_w}:{sets_l}",
+                'Мячи': f"{pts_w}:{pts_l}",
+                'Матчи': matches
+            })
+        if rows:
+            return pd.DataFrame(rows)
         return None
     else:
         return parse_text_to_df(data_source)
