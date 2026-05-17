@@ -1137,28 +1137,26 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             if st.button("Добавить", key="add_h2h"):
                 has_sets = sets_h2h.strip() != ""
                 has_pts = pts_h2h_str.strip() != ""
+                error = None
                 if not has_sets and not has_pts:
-                    st.error("Укажите хотя бы счёт по сетам или фору по очкам")
+                    error = "Укажите хотя бы счёт по сетам или фору по очкам"
                 else:
-                    sets_valid = True
                     if has_sets:
                         if ':' not in sets_h2h:
-                            st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
-                            sets_valid = False
+                            error = "Счёт по сетам должен содержать двоеточие, например 3:1"
                         else:
                             parts = sets_h2h.split(':')
                             if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                                st.error("Счёт должен состоять из двух чисел, например 3:1")
-                                sets_valid = False
-                    if not sets_valid:
-                        st.stop()
-                    pts_value = None
-                    if has_pts:
+                                error = "Счёт должен состоять из двух чисел, например 3:1"
+                    if not error and has_pts:
                         try:
-                            pts_value = float(pts_h2h_str.replace(',', '.'))
+                            _ = float(pts_h2h_str.replace(',', '.'))
                         except:
-                            st.error("Фора по очкам должна быть числом, например 5.5 или -3")
-                            st.stop()
+                            error = "Фора по очкам должна быть числом, например 5.5 или -3"
+                if error:
+                    st.error(error)
+                else:
+                    pts_value = float(pts_h2h_str.replace(',', '.')) if has_pts else None
                     key = (hh, ha)
                     st.session_state.h2h_manual.setdefault(key, []).append({
                         'Дата': date_h2h or "(нет даты)",
