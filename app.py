@@ -586,6 +586,10 @@ def detect_gender_by_url(url: str) -> str:
 # ==================== ПАРСЕР ТАБЛИЦ (CSV, EXCEL, ТЕКСТ) ====================
 
 def parse_table_to_df(data_source, file_type=None):
+    """
+    Парсит таблицу из CSV или Excel.
+    Автоматически определяет колонки по ключевым словам (русские, английские, итальянские).
+    """
     def safe_int(value, default=0):
         try:
             cleaned = str(value).replace('.', '').replace(',', '').strip()
@@ -610,40 +614,140 @@ def parse_table_to_df(data_source, file_type=None):
         except:
             return 0, 0
 
+    # --- для CSV ---
     if file_type == 'csv':
+        # Пробуем прочитать стандартным pandas
         try:
-            df = pd.read_csv(data_source, encoding='utf-8')
-        except:
-            content = data_source.getvalue().decode('utf-8')
-            lines = content.splitlines()
-            data = []
-            for line in lines:
-                line = line.strip()
-                if not line:
+            # Пробуем разные разделители
+            for sep in [',', ';', '\t']:
+                try:
+                    df = pd.read_csv(data_source, encoding='utf-8', sep=sep)
+                    if df.shape[1] > 1:
+                        break
+                except:
                     continue
-                if ';' in line:
-                    parts = line.split(';')
-                    if len(parts) >= 3:
-                        team = parts[0].strip()
-                        sets = parts[1].strip()
-                        points = parts[2].strip()
-                        matches = None
-                        if len(parts) >= 4 and parts[3].strip().isdigit():
-                            matches = int(parts[3].strip())
-                        w, l = parse_sets(sets)
-                        pw, pl = parse_sets(points)
-                        if w == 0 and l == 0:
-                            continue
-                        data.append({
-                            'Команда': team,
-                            'Сеты': f"{w}:{l}",
-                            'Мячи': f"{pw}:{pl}",
-                            'Матчи': matches
-                        })
-            if data:
-                return pd.DataFrame(data)
+            else:
+                df = None
+        except:
+            df = None
+
+        if df is not None and not df.empty:
+            # Ищем нужные колонки
+            team_col = None
+            sets_col = None
+            points_col = None
+            matches_col = None
+
+            for col in df.columns:
+                col_low = str(col).lower().strip()
+                # Команда
+                if any(key in col_low for key in ['squadra', 'team', 'команда', 'nome']):
+                    team_col = col
+                # Сеты (выигранные и проигранные) – ищем колонку с "Vinti" и "Persi" или просто "Set"
+                if any(key in col_low for key in ['set vinti', 'sets won', 'выигр сет', 'vinti', 'set v']):
+                    sets_col = col
+                # Если нет отдельной колонки для сетов, возможно колонка 'Set' содержит строку вида "59:18"
+                if 'set' in col_low and ':' in str(df[col].iloc[0]) and sets_col is None:
+                    sets_col = col
+                # Мячи/очки
+                if any(key in col_low for key in ['punti fatti', 'points for', 'набрано', 'fatti', 'punti f']):
+                    points_col = col
+                if 'punti' in col_low and ':' in str(df[col].iloc[0]) and points_col is None:
+                    points_col = col
+                # Матчи
+                if any(key in col_low for key in ['giocate', 'partite', 'matches', 'матчи', 'played', 'матч']):
+                    matches_col = col
+                if col_low == 'partite' or col_low == 'giocate':
+                    matches_col = col
+
+            if team_col is None or sets_col is None or points_col is None:
+                # Если не нашли, возвращаем None, чтобы перейти к ручному разбору
+                df = None
+            else:
+                rows = []
+                for idx, row in df.iterrows():
+                    team = str(row[team_col]).strip()
+                    if not team or team == 'nan':
+                        continue
+                    sets_str = str(row[sets_col]).strip()
+                    w, l = parse_sets(sets_str)
+                    if w == 0 and l == 0:
+                        continue
+                    points_str = str(row[points_col]).strip()
+                    pw, pl = parse_sets(points_str)
+                    matches = None
+                    if matches_col:
+                        val = row[matches_col]
+                        if pd.notna(val):
+                            try:
+                                matches = int(float(str(val).replace(',', '.')))
+                            except:
+                                pass
+                    rows.append({
+                        'Команда': team,
+                        'Сеты': f"{w}:{l}",
+                        'Мячи': f"{pw}:{pl}",
+                        'Матчи': matches
+                    })
+                if rows:
+                    return pd.DataFrame(rows)
+
+        # Если pandas не справился или не нашёл колонки, пробуем ручной построчный разбор с разделителями
+        content = data_source.getvalue().decode('utf-8')
+        lines = content.splitlines()
+        data = []
+        # Пропускаем пустые строки и строки с большим количеством запятых/точек с запятой без цифр
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Пробуем разделитель ';' или ','
+            for sep in [';', ',']:
+                if sep in line:
+                    parts = line.split(sep)
+                    # Ожидаем формат: номер, команда, ..., очки, сеты, мячи...
+                    # Упрощённо: ищем строку, где есть хотя бы 3 части и одна из них содержит ':'
+                    if len(parts) >= 5:
+                        # Ищем ячейку с двоеточием - это сеты или мячи
+                        set_idx = None
+                        point_idx = None
+                        for i, p in enumerate(parts):
+                            if ':' in p and set_idx is None:
+                                set_idx = i
+                            elif ':' in p and point_idx is None:
+                                point_idx = i
+                        if set_idx is not None and point_idx is not None:
+                            # Название команды – обычно после номера (первая или вторая ячейка)
+                            team_candidate = None
+                            for idx, p in enumerate(parts):
+                                if idx not in [set_idx, point_idx] and p.strip() and not p.strip().replace(',', '').replace('.', '').isdigit():
+                                    team_candidate = p.strip()
+                                    break
+                            if team_candidate:
+                                sets = parts[set_idx].strip()
+                                points = parts[point_idx].strip()
+                                w, l = parse_sets(sets)
+                                pw, pl = parse_sets(points)
+                                if w == 0 and l == 0:
+                                    continue
+                                # Ищем число матчей – обычно в отдельной колонке, которая не содержит ':' и является числом
+                                matches = None
+                                for p in parts:
+                                    if p.strip().isdigit() and int(p) > 0 and len(p) < 4:
+                                        matches = int(p)
+                                        break
+                                data.append({
+                                    'Команда': team_candidate,
+                                    'Сеты': f"{w}:{l}",
+                                    'Мячи': f"{pw}:{pl}",
+                                    'Матчи': matches
+                                })
+                                break
+        if data:
+            return pd.DataFrame(data)
         return None
 
+    # --- для Excel ---
     elif file_type == 'xlsx':
         df_raw = pd.read_excel(data_source)
         team_col = None
@@ -652,13 +756,13 @@ def parse_table_to_df(data_source, file_type=None):
         matches_col = None
         for col in df_raw.columns:
             col_low = str(col).lower()
-            if 'команда' in col_low or 'squadra' in col_low or 'team' in col_low:
+            if any(key in col_low for key in ['команда', 'squadra', 'team', 'nome']):
                 team_col = col
-            if 'сет' in col_low and ('выигр' in col_low or 'vinti' in col_low):
+            if any(key in col_low for key in ['сет', 'set', 'vinti', 'persi']) and ':' in str(df_raw[col].iloc[0]):
                 sets_col = col
-            if 'мяч' in col_low or 'punti' in col_low or 'очк' in col_low:
+            if any(key in col_low for key in ['мяч', 'punti', 'очк', 'fatti', 'subiti']) and ':' in str(df_raw[col].iloc[0]):
                 points_col = col
-            if 'матч' in col_low or 'matches' in col_low:
+            if any(key in col_low for key in ['матч', 'matches', 'giocate', 'partite']):
                 matches_col = col
         if team_col is None or sets_col is None or points_col is None:
             return None
@@ -704,6 +808,7 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
         line = line.strip()
         if not line:
             continue
+        # Формат с точкой с запятой
         if ';' in line:
             parts = line.split(';')
             if len(parts) >= 3:
@@ -719,6 +824,7 @@ def parse_text_to_df(text: str) -> pd.DataFrame:
                     continue
                 data.append({'Команда': team, 'Сеты': f"{w}:{l}", 'Мячи': f"{pw}:{pl}", 'Матчи': matches})
             continue
+        # Произвольные пробелы
         tokens = re.split(r'\s+', line)
         numbers = []
         team_parts = []
