@@ -609,6 +609,7 @@ def load_teams_from_url(url, combine_phases):
 st.set_page_config(page_title="Волейбольная статистика", layout="wide")
 st.title("🏐 Волейбольная статистика")
 
+# Инициализация session_state
 if 'df_teams' not in st.session_state:
     st.session_state.df_teams = None
 if 'h2h_manual' not in st.session_state:
@@ -626,7 +627,7 @@ if 'home_team' not in st.session_state:
 if 'away_team' not in st.session_state:
     st.session_state.away_team = None
 
-# Боковая панель
+# Боковая панель (таблицы)
 with st.sidebar:
     st.header("📁 Мои таблицы")
     col_exp, col_imp, col_clear = st.columns(3)
@@ -730,7 +731,7 @@ with st.sidebar:
     else:
         st.info("Нет сохранённых таблиц. Создайте новую или импортируйте JSON.")
 
-# Основная область
+# Основная область – выбор источника
 st.subheader("Источник данных")
 src = st.radio(
     "Выберите источник",
@@ -866,7 +867,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
 
-        # Отображение текущих встреч для выбранной пары
+        # Отображение текущих встреч для пары (home, away)
         key_pair = (home, away)
         rev_key = (away, home)
         current_h2h = []
@@ -912,7 +913,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
                 ha = st.selectbox("Гости", all_teams, key="h2h_a")
             with col_b:
-                sets_h2h = st.text_input("Счёт по сетам (опционально)", placeholder="3:1")
+                sets_h2h = st.text_input("Счёт по сетам (опционально, но для вычитания обязателен)", placeholder="3:1")
                 pts_input = st.text_input("Счёт по очкам (разница или счёт команд) *", placeholder="75:41 или 75 41 или 34")
                 date_h2h = st.text_input("Дата", placeholder="01.01.2026")
             submitted = st.form_submit_button("➕ Добавить встречу")
@@ -974,6 +975,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     if error:
                         st.error(error)
                     else:
+                        # Проверка счёта по сетам (если указан)
                         if sets_h2h.strip():
                             if ':' not in sets_h2h:
                                 st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
@@ -996,6 +998,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                                     st.success(f"Добавлена встреча {hh} - {ha}")
                                     st.rerun()
                         else:
+                            # Счёт по сетам не указан
                             new_match = {
                                 'Дата': date_h2h or "(нет даты)",
                                 'Хозяева': hh,
@@ -1010,7 +1013,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                             st.success(f"Добавлена встреча {hh} - {ha}")
                             st.rerun()
 
-        # Расчёт прогноза
+        # ---------- Расчёт прогноза (исправленная логика) ----------
         use_h2h = st.checkbox("Учитывать личные встречи (включено – усреднение, выключено – вычитание из статистики)", value=True)
 
         if st.button("Рассчитать котировки", key="calc"):
@@ -1025,6 +1028,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 a_bv_full, a_bp_full = a_bv, a_bp
                 a_matches_full = a_matches
 
+                # Полная фора
                 full_raw = None
                 if h_matches_full and a_matches_full and h_matches_full > 0 and a_matches_full > 0:
                     full_raw = calculate_raw_handicap(
@@ -1032,71 +1036,85 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         a_sv_full, a_sp_full, a_bv_full, a_bp_full, a_matches_full
                     )
 
-                # Очищенная статистика (вычитаем только full_score = True)
+                # Очищенная статистика (вычитаем только встречи с полными данными)
+                h_sv_clean, h_sp_clean = h_sv_full, h_sp_full
                 h_bv_clean, h_bp_clean = h_bv_full, h_bp_full
                 h_matches_clean = h_matches_full
+                a_sv_clean, a_sp_clean = a_sv_full, a_sp_full
                 a_bv_clean, a_bp_clean = a_bv_full, a_bp_full
                 a_matches_clean = a_matches_full
                 subtracted = 0
                 for match in current_h2h:
-                    if match.get('full_score', False) and match['Фора по очкам'] is not None:
-                        if ':' in match['Счёт по очкам']:
-                            pts_parts = match['Счёт по очкам'].split(':')
-                            h_bv_clean -= int(pts_parts[0])
-                            h_bp_clean -= int(pts_parts[1])
-                            a_bv_clean -= int(pts_parts[1])
-                            a_bp_clean -= int(pts_parts[0])
+                    # Для вычитания нужны и сеты, и полный счёт по очкам (с двоеточием)
+                    if (match.get('Счёт по сетам') and match.get('Счёт по очкам') and 
+                        ':' in match['Счёт по очкам'] and ':' in match['Счёт по сетам']):
+                        sets_parts = match['Счёт по сетам'].split(':')
+                        h_sv_clean -= int(sets_parts[0])
+                        h_sp_clean -= int(sets_parts[1])
+                        a_sv_clean -= int(sets_parts[1])
+                        a_sp_clean -= int(sets_parts[0])
+                        pts_parts = match['Счёт по очкам'].split(':')
+                        h_bv_clean -= int(pts_parts[0])
+                        h_bp_clean -= int(pts_parts[1])
+                        a_bv_clean -= int(pts_parts[1])
+                        a_bp_clean -= int(pts_parts[0])
                         if h_matches_clean is not None: h_matches_clean -= 1
                         if a_matches_clean is not None: a_matches_clean -= 1
                         subtracted += 1
                 if subtracted > 0:
-                    if (h_matches_clean is not None and h_matches_clean <= 0) or (a_matches_clean is not None and a_matches_clean <= 0):
-                        st.warning("После вычитания количество матчей стало нулевым. Использую полную статистику.")
-                        h_matches_clean, a_matches_clean = h_matches_full, a_matches_full
+                    if (h_sv_clean < 0 or h_sp_clean < 0 or h_bv_clean < 0 or h_bp_clean < 0 or
+                        a_sv_clean < 0 or a_sp_clean < 0 or a_bv_clean < 0 or a_bp_clean < 0 or
+                        (h_matches_clean is not None and h_matches_clean <= 0) or
+                        (a_matches_clean is not None and a_matches_clean <= 0)):
+                        st.warning("После вычитания статистика стала отрицательной. Использую полную статистику.")
+                        h_sv_clean, h_sp_clean = h_sv_full, h_sp_full
                         h_bv_clean, h_bp_clean = h_bv_full, h_bp_full
+                        h_matches_clean = h_matches_full
+                        a_sv_clean, a_sp_clean = a_sv_full, a_sp_full
                         a_bv_clean, a_bp_clean = a_bv_full, a_bp_full
+                        a_matches_clean = a_matches_full
                         subtracted = 0
                 clean_raw = None
                 if h_matches_clean and a_matches_clean and h_matches_clean > 0 and a_matches_clean > 0:
                     clean_raw = calculate_raw_handicap(
-                        h_sv_full, h_sp_full, h_bv_clean, h_bp_clean, h_matches_clean,
-                        a_sv_full, a_sp_full, a_bv_clean, a_bp_clean, a_matches_clean
+                        h_sv_clean, h_sp_clean, h_bv_clean, h_bp_clean, h_matches_clean,
+                        a_sv_clean, a_sp_clean, a_bv_clean, a_bp_clean, a_matches_clean
                     )
 
-                # Средняя фора из всех личных встреч (где есть фора)
-                h2h_forces = [m['Фора по очкам'] for m in current_h2h if m['Фора по очкам'] is not None]
+                # Средняя фора из личных встреч (все встречи, где есть фора)
+                h2h_forces = [m['Фора по очкам'] for m in current_h2h if m.get('Фора по очкам') is not None]
                 avg_h2h = sum(h2h_forces) / len(h2h_forces) if h2h_forces else None
 
                 if use_h2h:
                     if full_raw is not None and avg_h2h is not None:
                         final_raw = (full_raw + avg_h2h) / 2
-                        st.info(f"📊 Режим С УЧЁТОМ личных встреч\nПолная фора: {full_raw:.2f}\nСредняя фора личек: {avg_h2h:.2f}\n→ Итоговая: ({full_raw:.2f} + {avg_h2h:.2f}) / 2 = {final_raw:.2f}")
+                        st.info(f"📊 Режим С УЧЁТОМ личных встреч\nПолная фора (все матчи): {full_raw:.2f}\nСредняя фора личных встреч: {avg_h2h:.2f}\n→ Итоговая: ({full_raw:.2f} + {avg_h2h:.2f}) / 2 = {final_raw:.2f}")
                     elif full_raw is not None:
                         final_raw = full_raw
-                        st.info(f"Режим С УЧЁТОМ личных встреч, но нет форы по личкам → полная фора: {final_raw:.2f}")
+                        st.info(f"Режим С УЧЁТОМ личных встреч (нет форы по личкам) → полная фора: {final_raw:.2f}")
                     elif avg_h2h is not None:
                         final_raw = avg_h2h
-                        st.info(f"Режим С УЧЁТОМ личных встреч, но нет общей статистики → средняя фора личек: {final_raw:.2f}")
+                        st.info(f"Режим С УЧЁТОМ личных встреч (нет общей статистики) → средняя фора личек: {final_raw:.2f}")
                     else:
                         final_raw = None
                         st.error("Нет данных для расчёта форы")
                 else:
                     if clean_raw is not None and avg_h2h is not None:
                         final_raw = (clean_raw + avg_h2h) / 2
-                        st.info(f"📊 Режим БЕЗ УЧЁТА личных встреч\nФора после вычитания {subtracted} встреч (с полным счётом): {clean_raw:.2f}\nСредняя фора личек: {avg_h2h:.2f}\n→ Итоговая: ({clean_raw:.2f} + {avg_h2h:.2f}) / 2 = {final_raw:.2f}")
+                        st.info(f"📊 Режим БЕЗ УЧЁТА личных встреч\nФора после вычитания {subtracted} встреч (с полными данными): {clean_raw:.2f}\nСредняя фора личных встреч: {avg_h2h:.2f}\n→ Итоговая: ({clean_raw:.2f} + {avg_h2h:.2f}) / 2 = {final_raw:.2f}")
                         if subtracted == 0:
-                            st.warning("Внимание: вычитание не производилось, так как ни одна личная встреча не имеет полного счёта.")
+                            st.warning("Вычитание не производилось – нет встреч с полными счетами по очкам и сетам.")
                     elif clean_raw is not None:
                         final_raw = clean_raw
-                        st.info(f"Режим БЕЗ УЧЁТА личных встреч, но нет форы по личкам → очищенная фора: {final_raw:.2f}")
+                        st.info(f"Режим БЕЗ УЧЁТА личных встреч (нет форы по личкам) → очищенная фора: {final_raw:.2f}")
                     elif avg_h2h is not None:
                         final_raw = avg_h2h
-                        st.info(f"Режим БЕЗ УЧЁТА личных встреч, но нет очищенной статистики → средняя фора личек: {final_raw:.2f}")
+                        st.info(f"Режим БЕЗ УЧЁТА личных встреч (нет очищенной статистики) → средняя фора личек: {final_raw:.2f}")
                     else:
                         final_raw = None
                         st.error("Нет данных для расчёта форы")
 
-                # Прогноз по сетам (на основе полных данных)
+                # Прогноз по сетам (всегда на основе полных данных)
                 p_home = h_sv_full / (h_sv_full + h_sp_full) if (h_sv_full + h_sp_full) > 0 else 0.5
                 p_away = a_sv_full / (a_sv_full + a_sp_full) if (a_sv_full + a_sp_full) > 0 else 0.5
                 best_of = 3 if match_format.startswith("до 2") else 5
