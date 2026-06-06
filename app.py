@@ -850,105 +850,12 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}" + (f" | Матчей: {a_matches}" if a_matches else ""))
 
-        # Личные встречи
+        # ---------- Личные встречи (ГАРАНТИРОВАННО РАБОТАЮЩИЙ БЛОК) ----------
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
-        with st.expander("➕ Добавить личную встречу"):
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
-            with col_b:
-                ha = st.selectbox("Гости", all_teams, key="h2h_a")
-            with col_c:
-                sets_h2h = st.text_input("Счёт по сетам (опционально)", placeholder="3:1")
-            pts_input = st.text_input("Счёт по очкам (разница или счёт команд)", placeholder="75:41 или 75 41 или 34")
-            date_h2h = st.text_input("Дата", placeholder="01.01.2026")
-            if st.button("Добавить", key="add_h2h"):
-                if not pts_input.strip():
-                    st.error("Укажите счёт по очкам (разницу или счёт команд)")
-                else:
-                    error = None
-                    force = None
-                    pts_display = None
-                    pts_clean = pts_input.strip().replace(',', '.')
-                    if ':' in pts_clean:
-                        p_parts = pts_clean.split(':')
-                        if len(p_parts) != 2:
-                            error = "Неверный формат. Используйте 75:41"
-                        else:
-                            try:
-                                p1 = float(p_parts[0])
-                                p2 = float(p_parts[1])
-                                force = p1 - p2
-                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
-                            except:
-                                error = "Очки должны быть числами"
-                    elif ' ' in pts_clean:
-                        p_parts = pts_clean.split()
-                        if len(p_parts) != 2:
-                            error = "Неверный формат. Используйте 75 41"
-                        else:
-                            try:
-                                p1 = float(p_parts[0])
-                                p2 = float(p_parts[1])
-                                force = p1 - p2
-                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
-                            except:
-                                error = "Очки должны быть числами"
-                    elif '-' in pts_clean:
-                        p_parts = pts_clean.split('-')
-                        if len(p_parts) != 2:
-                            error = "Неверный формат. Используйте 75-41"
-                        else:
-                            try:
-                                p1 = float(p_parts[0])
-                                p2 = float(p_parts[1])
-                                force = p1 - p2
-                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
-                            except:
-                                error = "Очки должны быть числами"
-                    else:
-                        try:
-                            force = float(pts_clean)
-                            pts_display = pts_clean
-                        except:
-                            error = "Введите число (разницу) или счёт через двоеточие/пробел/дефис"
-                    if error:
-                        st.error(error)
-                    else:
-                        if sets_h2h.strip():
-                            if ':' not in sets_h2h:
-                                st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
-                            else:
-                                parts = sets_h2h.split(':')
-                                if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                                    st.error("Счёт по сетам должен состоять из двух чисел")
-                                else:
-                                    key = (hh, ha)
-                                    st.session_state.h2h_manual.setdefault(key, []).append({
-                                        'Дата': date_h2h or "(нет даты)",
-                                        'Хозяева': hh,
-                                        'Гости': ha,
-                                        'Счёт по сетам': sets_h2h,
-                                        'Счёт по очкам': pts_display,
-                                        'Фора по очкам': force
-                                    })
-                                    st.success("Добавлено")
-                                    st.rerun()
-                        else:
-                            key = (hh, ha)
-                            st.session_state.h2h_manual.setdefault(key, []).append({
-                                'Дата': date_h2h or "(нет даты)",
-                                'Хозяева': hh,
-                                'Гости': ha,
-                                'Счёт по сетам': None,
-                                'Счёт по очкам': pts_display,
-                                'Фора по очкам': force
-                            })
-                            st.success("Добавлено")
-                            st.rerun()
 
+        # Отображаем текущие встречи для выбранной пары
         key_pair = (home, away)
         rev_key = (away, home)
         current_h2h = []
@@ -971,7 +878,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             current_h2h.append(m2)
 
         if current_h2h:
-            st.subheader(f"История встреч: {home} – {away}")
             display_data = []
             for m in current_h2h:
                 display_data.append({
@@ -987,9 +893,108 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 st.session_state.h2h_manual.pop(key_pair, None)
                 st.session_state.h2h_manual.pop(rev_key, None)
                 st.rerun()
-        else:
-            st.info("Нет данных о личных встречах. Добавьте хотя бы счёт по очкам.")
 
+        # Форма добавления новой встречи
+        with st.form(key="add_h2h_form"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                hh = st.selectbox("Хозяева", all_teams, key="h2h_h")
+                ha = st.selectbox("Гости", all_teams, key="h2h_a")
+            with col_b:
+                sets_h2h = st.text_input("Счёт по сетам (опционально)", placeholder="3:1")
+                pts_input = st.text_input("Счёт по очкам (разница или счёт команд) *", placeholder="75:41 или 75 41 или 34")
+                date_h2h = st.text_input("Дата", placeholder="01.01.2026")
+            submitted = st.form_submit_button("➕ Добавить встречу")
+            if submitted:
+                if not pts_input.strip():
+                    st.error("Укажите счёт по очкам!")
+                else:
+                    # Парсим ввод очков
+                    pts_clean = pts_input.strip().replace(',', '.')
+                    force = None
+                    pts_display = None
+                    error = None
+                    if ':' in pts_clean:
+                        p_parts = pts_clean.split(':')
+                        if len(p_parts) != 2:
+                            error = "Неверный формат, используйте 75:41"
+                        else:
+                            try:
+                                p1 = float(p_parts[0])
+                                p2 = float(p_parts[1])
+                                force = p1 - p2
+                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
+                            except:
+                                error = "Очки должны быть числами"
+                    elif ' ' in pts_clean:
+                        p_parts = pts_clean.split()
+                        if len(p_parts) != 2:
+                            error = "Неверный формат, используйте 75 41"
+                        else:
+                            try:
+                                p1 = float(p_parts[0])
+                                p2 = float(p_parts[1])
+                                force = p1 - p2
+                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
+                            except:
+                                error = "Очки должны быть числами"
+                    elif '-' in pts_clean:
+                        p_parts = pts_clean.split('-')
+                        if len(p_parts) != 2:
+                            error = "Неверный формат, используйте 75-41"
+                        else:
+                            try:
+                                p1 = float(p_parts[0])
+                                p2 = float(p_parts[1])
+                                force = p1 - p2
+                                pts_display = f"{p1:.0f}:{p2:.0f}" if p1.is_integer() and p2.is_integer() else f"{p1}:{p2}"
+                            except:
+                                error = "Очки должны быть числами"
+                    else:
+                        try:
+                            force = float(pts_clean)
+                            pts_display = pts_clean
+                        except:
+                            error = "Введите число (разницу) или счёт через двоеточие/пробел/дефис"
+                    if error:
+                        st.error(error)
+                    else:
+                        # Проверка счёта по сетам (если указан)
+                        if sets_h2h.strip():
+                            if ':' not in sets_h2h:
+                                st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
+                            else:
+                                parts = sets_h2h.split(':')
+                                if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                                    st.error("Счёт по сетам должен состоять из двух чисел")
+                                else:
+                                    new_match = {
+                                        'Дата': date_h2h or "(нет даты)",
+                                        'Хозяева': hh,
+                                        'Гости': ha,
+                                        'Счёт по сетам': sets_h2h,
+                                        'Счёт по очкам': pts_display,
+                                        'Фора по очкам': force
+                                    }
+                                    key = (hh, ha)
+                                    st.session_state.h2h_manual.setdefault(key, []).append(new_match)
+                                    st.success(f"Добавлена встреча {hh} - {ha}")
+                                    st.rerun()
+                        else:
+                            new_match = {
+                                'Дата': date_h2h or "(нет даты)",
+                                'Хозяева': hh,
+                                'Гости': ha,
+                                'Счёт по сетам': None,
+                                'Счёт по очкам': pts_display,
+                                'Фора по очкам': force
+                            }
+                            key = (hh, ha)
+                            st.session_state.h2h_manual.setdefault(key, []).append(new_match)
+                            st.success(f"Добавлена встреча {hh} - {ha}")
+                            st.rerun()
+
+        # Расчёт прогноза
         use_h2h = st.checkbox("Учитывать личные встречи (включено – усреднение, выключено – вычитание из статистики)", value=True)
 
         if st.button("Рассчитать котировки", key="calc"):
@@ -1019,14 +1024,12 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                 subtracted = 0
                 for match in current_h2h:
                     if match['Фора по очкам'] is not None:
-                        # Если есть полный счёт – вычитаем очки
                         if match['Счёт по очкам'] and ':' in str(match['Счёт по очкам']):
                             pts_parts = match['Счёт по очкам'].split(':')
                             h_bv_clean -= int(pts_parts[0])
                             h_bp_clean -= int(pts_parts[1])
                             a_bv_clean -= int(pts_parts[1])
                             a_bp_clean -= int(pts_parts[0])
-                        # Вычитаем матчи
                         if h_matches_clean is not None: h_matches_clean -= 1
                         if a_matches_clean is not None: a_matches_clean -= 1
                         subtracted += 1
@@ -1044,7 +1047,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         a_sv_full, a_sp_full, a_bv_clean, a_bp_clean, a_matches_clean
                     )
 
-                # Средняя фора из личных встреч
                 h2h_forces = [m['Фора по очкам'] for m in current_h2h if m['Фора по очкам'] is not None]
                 avg_h2h = sum(h2h_forces) / len(h2h_forces) if h2h_forces else None
 
