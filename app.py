@@ -850,7 +850,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             p_away_set = a_sv / (a_sv + a_sp) if (a_sv + a_sp) > 0 else 0.5
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}" + (f" | Матчей: {a_matches}" if a_matches else ""))
 
-        # Личные встречи (упрощённый ввод)
+        # Личные встречи
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
@@ -919,25 +919,28 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                     if error:
                         st.error(error)
                     else:
+                        sets_valid = True
                         if has_sets:
                             if ':' not in sets_h2h:
                                 st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
-                                continue
-                            parts = sets_h2h.split(':')
-                            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                                st.error("Счёт по сетам должен состоять из двух чисел")
-                                continue
-                        key = (hh, ha)
-                        st.session_state.h2h_manual.setdefault(key, []).append({
-                            'Дата': date_h2h or "(нет даты)",
-                            'Хозяева': hh,
-                            'Гости': ha,
-                            'Счёт по сетам': sets_h2h if has_sets else None,
-                            'Счёт по очкам': pts_display,
-                            'Фора по очкам': force
-                        })
-                        st.success("Добавлено")
-                        st.rerun()
+                                sets_valid = False
+                            else:
+                                parts = sets_h2h.split(':')
+                                if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                                    st.error("Счёт по сетам должен состоять из двух чисел")
+                                    sets_valid = False
+                        if sets_valid:
+                            key = (hh, ha)
+                            st.session_state.h2h_manual.setdefault(key, []).append({
+                                'Дата': date_h2h or "(нет даты)",
+                                'Хозяева': hh,
+                                'Гости': ha,
+                                'Счёт по сетам': sets_h2h if has_sets else None,
+                                'Счёт по очкам': pts_display,
+                                'Фора по очкам': force
+                            })
+                            st.success("Добавлено")
+                            st.rerun()
 
         key_pair = (home, away)
         rev_key = (away, home)
