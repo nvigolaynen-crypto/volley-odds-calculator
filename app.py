@@ -879,7 +879,7 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             matches_info = f" | Матчей: {a_matches}" if a_matches else ""
             st.caption(f"Сеты: {a_sv}:{a_sp} | Мячи: {a_bv}:{a_bp} | % сетов: {p_away_set:.1%}{matches_info}")
 
-        # ----- Личные встречи (гибкий ввод) -----
+        # ----- Личные встречи (гибкий ввод, исправленный) -----
         st.divider()
         st.subheader("📋 Личные встречи (ручной ввод)")
         all_teams = teams if len(teams) > 1 else [home, away]
@@ -895,57 +895,55 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
             diff_h2h = st.number_input("Разница по очкам (опционально, + если хозяева выиграли)", step=0.5, key="diff_h2h", value=None)
             date_h2h = st.text_input("Дата", placeholder="01.01.2026")
             if st.button("Добавить", key="add_h2h"):
-                # Проверяем, что заполнено хотя бы одно поле
                 has_sets = bool(sets_h2h.strip())
                 has_pts = bool(pts_h2h.strip())
                 has_diff = diff_h2h is not None and diff_h2h != 0
                 if not (has_sets or has_pts or has_diff):
                     st.error("Укажите хотя бы один параметр: счёт по сетам, счёт по очкам или разницу по очкам")
                 else:
-                    # Валидация счёта по сетам, если он указан
+                    error = None
                     if has_sets:
                         if ':' not in sets_h2h:
-                            st.error("Счёт по сетам должен содержать двоеточие, например 3:1")
-                            continue
-                        parts = sets_h2h.split(':')
-                        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                            st.error("Счёт по сетам должен состоять из двух чисел")
-                            continue
-                    # Валидация счёта по очкам, если он указан
+                            error = "Счёт по сетам должен содержать двоеточие, например 3:1"
+                        else:
+                            parts = sets_h2h.split(':')
+                            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                                error = "Счёт по сетам должен состоять из двух чисел"
                     pts_value = None
-                    if has_pts:
+                    if not error and has_pts:
                         if ':' not in pts_h2h:
-                            st.error("Счёт по очкам должен содержать двоеточие, например 75:70")
-                            continue
-                        p_parts = pts_h2h.split(':')
-                        if len(p_parts) != 2:
-                            st.error("Счёт по очкам должен состоять из двух чисел")
-                            continue
-                        try:
-                            p1 = int(p_parts[0])
-                            p2 = int(p_parts[1])
-                            pts_value = p1 - p2
-                        except:
-                            st.error("Счёт по очкам должен содержать целые числа")
-                            continue
-                    # Определяем итоговую фору в пользу хозяев
-                    if has_diff:
-                        force = float(diff_h2h)
-                    elif has_pts:
-                        force = pts_value
+                            error = "Счёт по очкам должен содержать двоеточие, например 75:70"
+                        else:
+                            p_parts = pts_h2h.split(':')
+                            if len(p_parts) != 2:
+                                error = "Счёт по очкам должен состоять из двух чисел"
+                            else:
+                                try:
+                                    p1 = int(p_parts[0])
+                                    p2 = int(p_parts[1])
+                                    pts_value = p1 - p2
+                                except:
+                                    error = "Счёт по очкам должен содержать целые числа"
+                    if error:
+                        st.error(error)
                     else:
-                        force = None  # только сеты, фора не определена
-                    key = (hh, ha)
-                    st.session_state.h2h_manual.setdefault(key, []).append({
-                        'Дата': date_h2h or "(нет даты)",
-                        'Хозяева': hh,
-                        'Гости': ha,
-                        'Счёт по сетам': sets_h2h if has_sets else None,
-                        'Счёт по очкам': pts_h2h if has_pts else None,
-                        'Фора по очкам': force
-                    })
-                    st.success("Добавлено")
-                    st.rerun()
+                        if has_diff:
+                            force = float(diff_h2h)
+                        elif has_pts:
+                            force = pts_value
+                        else:
+                            force = None
+                        key = (hh, ha)
+                        st.session_state.h2h_manual.setdefault(key, []).append({
+                            'Дата': date_h2h or "(нет даты)",
+                            'Хозяева': hh,
+                            'Гости': ha,
+                            'Счёт по сетам': sets_h2h if has_sets else None,
+                            'Счёт по очкам': pts_h2h if has_pts else None,
+                            'Фора по очкам': force
+                        })
+                        st.success("Добавлено")
+                        st.rerun()
 
         key_pair = (home, away)
         rev_key = (away, home)
@@ -1035,7 +1033,6 @@ if st.session_state.df_teams is not None and not st.session_state.df_teams.empty
                         a_bv = a_bv_orig - a_pts_w_sub
                         a_bp = a_bp_orig - a_pts_l_sub
                         a_matches = a_matches_orig - n_h2h
-                        # Проверка на отрицательность
                         if min(h_sv, h_sp, h_bv, h_bp, a_sv, a_sp, a_bv, a_bp, h_matches, a_matches) < 0:
                             st.warning("Некорректное вычитание: личные встречи вероятно уже учтены. Использую полную статистику.")
                             h_sv, h_sp = h_sv_orig, h_sp_orig
